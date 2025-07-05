@@ -165,6 +165,8 @@ local UIBox = VisualTab:AddRightGroupbox("UI Settings")
 local MaxDistance = 400.5
 local NametagsEnabled = false
 local HighlightEnabled = false
+local ShowDisplayNick = true
+local ShowRealNick = false
 
 -- No Smoke Feature
 local noSmokeEnabled = false
@@ -194,7 +196,13 @@ local function CreateNametag(Player)
         NameTextLabel.Name = "NameTextLabel"
         NameTextLabel.Size = UDim2.new(1, 0, 0.4, 0)
         NameTextLabel.Position = UDim2.new(0, 0, 0, 0)
-        NameTextLabel.Text = Player.Name
+        if ShowDisplayNick then
+            NameTextLabel.Text = Player.DisplayName
+        elseif ShowRealNick then
+            NameTextLabel.Text = Player.Name
+        else
+            NameTextLabel.Text = ""
+        end
         NameTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         NameTextLabel.BackgroundTransparency = 1
         NameTextLabel.TextStrokeTransparency = 0.75
@@ -248,7 +256,15 @@ local function UpdateAllNametags()
                 local HealthBarBackground = BillboardGui:FindFirstChild("HealthBarBackground")
                 local HealthBarFill = HealthBarBackground and HealthBarBackground:FindFirstChild("HealthBarFill")
                 local hum = Player.Character:FindFirstChildOfClass("Humanoid")
-                if NameTextLabel then NameTextLabel.Text = Player.Name end
+                if NameTextLabel then
+                    if ShowDisplayNick then
+                        NameTextLabel.Text = Player.DisplayName
+                    elseif ShowRealNick then
+                        NameTextLabel.Text = Player.Name
+                    else
+                        NameTextLabel.Text = ""
+                    end
+                end
                 if MovesetTextLabel then
                     local moveset = Player.Character:GetAttribute("Moveset")
                     MovesetTextLabel.Text = "Moveset: " .. (moveset or "N/A")
@@ -2812,6 +2828,8 @@ local function saveConfig(name)
         Background = ThemeBox.Flags and ThemeBox.Flags.CustomBackgroundColorToggle and ThemeBox.Flags.CustomBackgroundColorToggle.Value or false,
         Font = ThemeBox.Flags and ThemeBox.Flags.CustomFontColorToggle and ThemeBox.Flags.CustomFontColorToggle.Value or false
     }
+    data.ShowDisplayNick = showDisplayNickToggle and showDisplayNickToggle.Value or false
+    data.ShowRealNick = showRealNickToggle and showRealNickToggle.Value or true
     writefile(configFolder.."/"..name..configExt, game:GetService("HttpService"):JSONEncode(data))
     Library:Notify("Config saved: "..name)
     print("[Config] Saving config with AttackSpeed:", attackSpeedSlider and attackSpeedSlider.Value)
@@ -2964,6 +2982,8 @@ local function loadConfig(name)
         if ThemeBox.Flags.CustomBackgroundColorToggle then ThemeBox.Flags.CustomBackgroundColorToggle:Set(data.CustomColorToggles.Background) end
         if ThemeBox.Flags.CustomFontColorToggle then ThemeBox.Flags.CustomFontColorToggle:Set(data.CustomColorToggles.Font) end
     end
+    if showDisplayNickToggle then safeSet(showDisplayNickToggle, data.ShowDisplayNick or false) end
+    if showRealNickToggle then safeSet(showRealNickToggle, data.ShowRealNick or true) end
     print("[Config] Loaded config value for AttackSpeed:", data.AttackSpeed)
     print("[Config] Loaded config value for PunchStunSpeed:", data.PunchStunSpeed)
 
@@ -3040,3 +3060,111 @@ spawn(function()
         task.wait(0.1)
     end
 end)
+
+showDisplayNickToggle = ESPBox:AddToggle("ShowDisplayNickToggle", {
+    Text = "Show Display Nick",
+    Default = true,
+    Tooltip = "Show player's display name (custom nickname)",
+    Callback = function(state)
+        ShowDisplayNick = state
+        if state then ShowRealNick = false end
+        UpdateAllNametags()
+    end
+})
+
+showRealNickToggle = ESPBox:AddToggle("ShowRealNickToggle", {
+    Text = "Show Real Nick",
+    Default = false,
+    Tooltip = "Show player's real username (registration name)",
+    Callback = function(state)
+        ShowRealNick = state
+        if state then ShowDisplayNick = false end
+        UpdateAllNametags()
+    end
+})
+
+local autoBlockEnabled = false
+local autoBlockRadius = 15
+local autoBlockConn = nil
+
+local ignoreAnimNames = {
+    Running = true, Walking = true, FallDefault = true, FallKatana = true, FlungAir = true, Jump = true, JumpFar = true,
+    Idle = true, IdleKatana = true, Blocking = true, DashAnims = true, BlockBreak = true
+}
+local mustBlockNames = { ["M1-1"] = true, ["M1-2"] = true, ["M1-3"] = true, ["M1-4"] = true, ["M2"] = true }
+
+function isDangerousAnimation(animName)
+    local lower = animName:lower()
+    for ignore, _ in pairs(ignoreAnimNames) do
+        if lower:find(ignore:lower()) then return false end
+    end
+    for must, _ in pairs(mustBlockNames) do
+        if lower == must:lower() then return true end
+    end
+    return true
+end
+
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
+local BlockRemote = Remotes and Remotes:FindFirstChild("Block")
+
+local AUTO_BLOCK_RELEASE_TIME = 0.3 -- Время отпускания блока после атаки (сек)
+local AUTO_BLOCK_IGNORE_TIME = 0.2   -- Время, в течение которого новые атаки игнорируются (сек)
+
+local lastAttackTime = 0
+local ignoreAttackUntil = 0
+
+-- Обработчик нажатий для авто-блока
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.KeyCode == Enum.KeyCode.One
+        or input.KeyCode == Enum.KeyCode.Two
+        or input.KeyCode == Enum.KeyCode.Three
+        or input.KeyCode == Enum.KeyCode.Four
+        or input.KeyCode == Enum.KeyCode.R then
+        local now = tick()
+        if now > ignoreAttackUntil then
+            lastAttackTime = now
+            ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
+        end
+    end
+end)
+
+autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
+    Text = "Auto Block [REQUIRES NO SLOW]",
+    Default = false,
+    Tooltip = "Automatically blocks if dangerous animation is near you (radius 15)",
+    Callback = function(state)
+        autoBlockEnabled = state
+        if autoBlockConn then autoBlockConn:Disconnect() autoBlockConn = nil end
+        local CharacterDataModule = require(ReplicatedStorage.Knit.Modules.Data.CharacterData)
+        local myData = CharacterDataModule.GetData()
+        if state then
+            autoBlockConn = task.spawn(function()
+                while autoBlockEnabled do
+                    local now = tick()
+                    local shouldBlock = true
+                    if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
+                        shouldBlock = false
+                    elseif now < ignoreAttackUntil then
+                        shouldBlock = true
+                    end
+                    if myData then
+                        myData.Blocking = shouldBlock
+                    end
+                    if BlockRemote then
+                        BlockRemote:FireServer(shouldBlock)
+                    end
+                    task.wait(0.05)
+                end
+            end)
+        else
+            if myData then
+                myData.Blocking = false
+            end
+            if BlockRemote then
+                BlockRemote:FireServer(false)
+            end
+        end
+    end
+})
