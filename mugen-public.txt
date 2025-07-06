@@ -3175,6 +3175,44 @@ local dangerousAnims = {
 local lastAttacking = 0
 local attackingListener = nil
 
+-- === AutoBlock: универсальная поддержка для телефона (любое касание) ===
+local autoBlockTouchConn = nil
+local autoBlockButtonConns = {}
+local function connectAllMobileBlockHandlers()
+    -- Отключаем старые
+    if autoBlockTouchConn then autoBlockTouchConn:Disconnect() autoBlockTouchConn = nil end
+    for _, conn in pairs(autoBlockButtonConns) do conn:Disconnect() end
+    autoBlockButtonConns = {}
+    -- Любое касание экрана
+    autoBlockTouchConn = UserInputService.TouchStarted:Connect(function()
+        lastAttackTime = tick()
+        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+    end)
+    -- Все кнопки в PlayerGui
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        for _, btn in ipairs(playerGui:GetDescendants()) do
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                local conn = btn.MouseButton1Down:Connect(function()
+                    lastAttackTime = tick()
+                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                end)
+                table.insert(autoBlockButtonConns, conn)
+            end
+        end
+        -- Новые кнопки
+        table.insert(autoBlockButtonConns, playerGui.DescendantAdded:Connect(function(obj)
+            if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                local conn = obj.MouseButton1Down:Connect(function()
+                    lastAttackTime = tick()
+                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                end)
+                table.insert(autoBlockButtonConns, conn)
+            end
+        end))
+    end
+end
+
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
@@ -3183,8 +3221,16 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
         autoBlockEnabled = state
         if autoBlockConn then autoBlockConn:Disconnect() autoBlockConn = nil end
         if attackingListener then attackingListener:Disconnect() attackingListener = nil end
+        -- Отключаем мобильные обработчики при выключении
+        if not state then
+            if autoBlockTouchConn then autoBlockTouchConn:Disconnect() autoBlockTouchConn = nil end
+            for _, conn in pairs(autoBlockButtonConns) do conn:Disconnect() end
+            autoBlockButtonConns = {}
+        end
         local myData = CharacterDataModule.GetData()
         if state then
+            -- Подключаем мобильные обработчики
+            connectAllMobileBlockHandlers()
             attackingListener = CharacterDataModule.ListenTo("Attacking"):Connect(function(val)
                 if val > 0 then
                     lastAttackTime = tick()
@@ -3365,44 +3411,6 @@ if UserInputService.TouchEnabled then
         if child.Name == "MobileHUD" then
             task.wait(0.2)
             setupMobileAttackListener()
-        end
-    end)
-end
-
--- === AutoBlock: универсальная поддержка для телефона (любое касание) ===
-if UserInputService.TouchEnabled then
-    -- 1. Любое касание экрана (в том числе по UI)
-    if _G._autoBlockTouchConn then _G._autoBlockTouchConn:Disconnect() end
-    _G._autoBlockTouchConn = UserInputService.TouchStarted:Connect(function()
-        lastAttackTime = tick()
-        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
-    end)
-
-    -- 2. Для надёжности: обработчик на все кнопки в PlayerGui
-    local function connectAllButtons()
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not playerGui then return end
-        for _, btn in ipairs(playerGui:GetDescendants()) do
-            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
-                if not btn._autoBlockConn then
-                    btn._autoBlockConn = btn.MouseButton1Down:Connect(function()
-                        lastAttackTime = tick()
-                        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
-                    end)
-                end
-            end
-        end
-    end
-    connectAllButtons()
-    -- Обновлять обработчики при появлении новых UI
-    LocalPlayer.PlayerGui.DescendantAdded:Connect(function(obj)
-        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
-            if not obj._autoBlockConn then
-                obj._autoBlockConn = obj.MouseButton1Down:Connect(function()
-                    lastAttackTime = tick()
-                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
-                end)
-            end
         end
     end)
 end
