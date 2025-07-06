@@ -3173,6 +3173,8 @@ local dangerousAnims = {
 }
 
 local lastAttacking = 0
+local attackingListener = nil
+
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
@@ -3180,9 +3182,15 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Callback = function(state)
         autoBlockEnabled = state
         if autoBlockConn then autoBlockConn:Disconnect() autoBlockConn = nil end
-        local CharacterDataModule = require(ReplicatedStorage.Knit.Modules.Data.CharacterData)
+        if attackingListener then attackingListener:Disconnect() attackingListener = nil end
         local myData = CharacterDataModule.GetData()
         if state then
+            attackingListener = CharacterDataModule.ListenTo("Attacking"):Connect(function(val)
+                if val > 0 then
+                    lastAttackTime = tick()
+                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                end
+            end)
             autoBlockConn = task.spawn(function()
                 while autoBlockEnabled do
                     local now = tick()
@@ -3215,12 +3223,6 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                         lastAttackTime = 0 -- сбрасываем отпускание блока, если опасность
                         ignoreAttackUntil = 0
                     else
-                        if myData and myData.Attacking and myData.Attacking > 0 and lastAttacking == 0 then
-                            -- Только что началась атака!
-                            lastAttackTime = now
-                            ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
-                        end
-                        lastAttacking = myData and myData.Attacking or 0
                         if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
                             shouldBlock = false
                         elseif now < ignoreAttackUntil then
