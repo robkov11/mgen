@@ -2830,6 +2830,10 @@ local function saveConfig(name)
     }
     data.ShowDisplayNick = showDisplayNickToggle and showDisplayNickToggle.Value or false
     data.ShowRealNick = showRealNickToggle and showRealNickToggle.Value or true
+    -- === Auto Block Settings ===
+    data.AutoBlockReleaseTime = AUTO_BLOCK_RELEASE_TIME
+    data.AutoBlockIgnoreTime = AUTO_BLOCK_IGNORE_TIME
+    data.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
     writefile(configFolder.."/"..name..configExt, game:GetService("HttpService"):JSONEncode(data))
     Library:Notify("Config saved: "..name)
     print("[Config] Saving config with AttackSpeed:", attackSpeedSlider and attackSpeedSlider.Value)
@@ -2984,6 +2988,28 @@ local function loadConfig(name)
     end
     if showDisplayNickToggle then safeSet(showDisplayNickToggle, data.ShowDisplayNick or false) end
     if showRealNickToggle then safeSet(showRealNickToggle, data.ShowRealNick or true) end
+    -- === Auto Block Settings ===
+    if data.AutoBlockReleaseTime then
+        AUTO_BLOCK_RELEASE_TIME = data.AutoBlockReleaseTime
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider, data.AutoBlockReleaseTime)
+        end
+    end
+    if data.AutoBlockIgnoreTime then
+        AUTO_BLOCK_IGNORE_TIME = data.AutoBlockIgnoreTime
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime)
+        end
+    end
+    if data.AutoBlockAnimFlags then
+        _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+        for k, v in pairs(data.AutoBlockAnimFlags) do
+            _G.AutoBlockAnimFlags[k] = v
+            if AutoBlockAnimsBox and AutoBlockAnimsBox.Flags and AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k] then
+                safeSet(AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k], v)
+            end
+        end
+    end
     print("[Config] Loaded config value for AttackSpeed:", data.AttackSpeed)
     print("[Config] Loaded config value for PunchStunSpeed:", data.PunchStunSpeed)
 
