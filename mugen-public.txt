@@ -3336,3 +3336,35 @@ infinitePostureConn = game:GetService("RunService").RenderStepped:Connect(functi
         end
     end
 end)
+
+-- === AutoBlock: поддержка мобильной кнопки Attack ===
+local function setupMobileAttackListener()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    local mobileHUD = playerGui:FindFirstChild("MobileHUD")
+    if not mobileHUD then return end
+    local controls = mobileHUD:FindFirstChild("Controls")
+    if not controls then return end
+    local attackBtn = controls:FindFirstChild("Attack")
+    if not attackBtn then return end
+    -- Удаляем старый обработчик, если был
+    if attackBtn._autoBlockConn then
+        attackBtn._autoBlockConn:Disconnect()
+        attackBtn._autoBlockConn = nil
+    end
+    -- Вешаем новый обработчик
+    attackBtn._autoBlockConn = attackBtn.MouseButton1Down:Connect(function()
+        lastAttackTime = tick()
+        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+    end)
+end
+
+if UserInputService.TouchEnabled then
+    setupMobileAttackListener()
+    LocalPlayer.PlayerGui.ChildAdded:Connect(function(child)
+        if child.Name == "MobileHUD" then
+            task.wait(0.2)
+            setupMobileAttackListener()
+        end
+    end)
+end
