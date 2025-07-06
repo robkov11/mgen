@@ -3172,6 +3172,7 @@ local dangerousAnims = {
     SixFoldRush = true, SixFoldWindUp = true, ThunderClapEnd = true, ThunderClapStartup = true
 }
 
+local lastAttacking = 0
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
@@ -3214,12 +3215,12 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                         lastAttackTime = 0 -- сбрасываем отпускание блока, если опасность
                         ignoreAttackUntil = 0
                     else
-                        if myData and myData.Attacking and myData.Attacking > 0 then
-                            if now > ignoreAttackUntil then
-                                lastAttackTime = now
-                                ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
-                            end
+                        if myData and myData.Attacking and myData.Attacking > 0 and lastAttacking == 0 then
+                            -- Только что началась атака!
+                            lastAttackTime = now
+                            ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
                         end
+                        lastAttacking = myData and myData.Attacking or 0
                         if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
                             shouldBlock = false
                         elseif now < ignoreAttackUntil then
@@ -3304,3 +3305,32 @@ local dangerousAnims = setmetatable({}, {
         return _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[k] or false
     end
 })
+
+-- === Infinite Posture (новая логика: анти-пробитие блока) ===
+if infinitePostureConn then infinitePostureConn:Disconnect() infinitePostureConn = nil end
+infinitePostureConn = game:GetService("RunService").RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local data = require(game:GetService("ReplicatedStorage").Knit.Modules.Data.CharacterData).GetData(char)
+    if data then
+        -- 1. Мгновенно восстанавливаем Posture, если оно упало
+        if data.Posture and data.Posture < 100 then
+            data.Posture = 100
+            char:SetAttribute("Posture", 100)
+        end
+        -- 2. Снимаем статус BlockBreak/BlockStun, если он появился
+        if (char:GetAttribute("BlockBreak") and char:GetAttribute("BlockBreak") > 0) or (char:GetAttribute("Stun") and char:GetAttribute("Stun") > 0) then
+            char:SetAttribute("BlockBreak", 0)
+            char:SetAttribute("Stun", 0)
+        end
+        -- 3. Останавливаем анимации BlockBreak/BlockFlinch
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            for _, track in ipairs(hum.Animator:GetPlayingAnimationTracks()) do
+                if track.Name:find("BlockBreak") or track.Name:find("BlockFlinch") then
+                    track:Stop(0)
+                end
+            end
+        end
+    end
+end)
