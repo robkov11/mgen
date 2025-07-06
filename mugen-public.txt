@@ -3107,8 +3107,8 @@ end
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 local BlockRemote = Remotes and Remotes:FindFirstChild("Block")
 
-local AUTO_BLOCK_RELEASE_TIME = 0.3 -- Время отпускания блока после атаки (сек)
-local AUTO_BLOCK_IGNORE_TIME = 0.2   -- Время, в течение которого новые атаки игнорируются (сек)
+local AUTO_BLOCK_RELEASE_TIME = 0.26 -- Время отпускания блока после атаки (сек)
+local AUTO_BLOCK_IGNORE_TIME = 0.23   -- Время, в течение которого новые атаки игнорируются (сек)
 
 local lastAttackTime = 0
 local ignoreAttackUntil = 0
@@ -3130,6 +3130,22 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
+local dangerousAnims = {
+    -- Akaza
+    Parry = true, Destruct = true, Disorder = true,
+    -- Gyutaro
+    RampantArc = true, SickleThrow = true,
+    -- Rengoku
+    FlameBarrage = true, FlameBarrageFinisher = true, RisingSun = true,
+    -- Tanjiro (SunDance)
+    FlowingDance = true, FlowingDanceNew = true, ShiningSun = true, WaterSurfaceSlash = true, WaterWheel = true,
+    -- Tengen (MusicalScoreEnd)
+    LoudAct = true, MusicalScore = true, Performance = true, Resounding = true,
+    -- Zenitsu
+    EightFoldLand = true, EightFoldWindUp = true, FallAsleep = true, SixFoldBlocked = true, SixFoldEnd = true,
+    SixFoldRush = true, SixFoldWindUp = true, ThunderClapEnd = true, ThunderClapStartup = true
+}
+
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
@@ -3143,11 +3159,48 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
             autoBlockConn = task.spawn(function()
                 while autoBlockEnabled do
                     local now = tick()
-                    local shouldBlock = true
-                    if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
-                        shouldBlock = false
-                    elseif now < ignoreAttackUntil then
+                    local danger = false
+                    local myChar = LocalPlayer.Character
+                    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                        local myPos = myChar.HumanoidRootPart.Position
+                        for _, player in ipairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                if dist <= autoBlockRadius then
+                                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                    if humanoid and humanoid.Animator then
+                                        for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                            local animName = track.Name
+                                            if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" or dangerousAnims[animName] then
+                                                danger = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if danger then break end
+                        end
+                    end
+                    local shouldBlock
+                    if danger then
                         shouldBlock = true
+                        lastAttackTime = 0 -- сбрасываем отпускание блока, если опасность
+                        ignoreAttackUntil = 0
+                    else
+                        if myData and myData.Attacking and myData.Attacking > 0 then
+                            if now > ignoreAttackUntil then
+                                lastAttackTime = now
+                                ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
+                            end
+                        end
+                        if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
+                            shouldBlock = false
+                        elseif now < ignoreAttackUntil then
+                            shouldBlock = true
+                        else
+                            shouldBlock = true
+                        end
                     end
                     if myData then
                         myData.Blocking = shouldBlock
@@ -3166,5 +3219,62 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                 BlockRemote:FireServer(false)
             end
         end
+    end
+})
+
+-- === Auto Block Settings Tab ===
+local AutoBlockTab = Window:AddTab("Auto Block Settings", "shield")
+local AutoBlockSettingsBox = AutoBlockTab:AddLeftGroupbox("Timing Settings")
+local AutoBlockAnimsBox = AutoBlockTab:AddRightGroupbox("Dangerous Animations")
+
+-- Тайминги (слайдеры)
+AUTO_BLOCK_RELEASE_TIME = AUTO_BLOCK_RELEASE_TIME or 0.3
+AUTO_BLOCK_IGNORE_TIME = AUTO_BLOCK_IGNORE_TIME or 0.25
+
+AutoBlockSettingsBox:AddSlider("AutoBlockReleaseTimeSlider", {
+    Text = "Release Time (sec)",
+    Min = 0.1,
+    Max = 1.0,
+    Default = AUTO_BLOCK_RELEASE_TIME,
+    Rounding = 2,
+    Tooltip = "How long to release block after attack",
+    Callback = function(val) AUTO_BLOCK_RELEASE_TIME = val end
+})
+AutoBlockSettingsBox:AddSlider("AutoBlockIgnoreTimeSlider", {
+    Text = "Ignore Time (sec)",
+    Min = 0.1,
+    Max = 1.0,
+    Default = AUTO_BLOCK_IGNORE_TIME,
+    Rounding = 2,
+    Tooltip = "How long to ignore new attacks after block release",
+    Callback = function(val) AUTO_BLOCK_IGNORE_TIME = val end
+})
+
+-- Список всех опасных анимаций
+local allDangerousAnims = {
+    "M1-1", "M1-2", "M1-3", "M1-4", "M2",
+    "Parry", "Destruct", "Disorder",
+    "RampantArc", "SickleThrow",
+    "FlameBarrage", "FlameBarrageFinisher", "RisingSun",
+    "FlowingDance", "FlowingDanceNew", "ShiningSun", "WaterSurfaceSlash", "WaterWheel",
+    "LoudAct", "MusicalScore", "Performance", "Resounding",
+    "EightFoldLand", "EightFoldWindUp", "FallAsleep", "SixFoldBlocked", "SixFoldEnd",
+    "SixFoldRush", "SixFoldWindUp", "ThunderClapEnd", "ThunderClapStartup"
+}
+
+-- Состояния чекбоксов для анимаций
+_G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+for _, anim in ipairs(allDangerousAnims) do
+    if _G.AutoBlockAnimFlags[anim] == nil then _G.AutoBlockAnimFlags[anim] = true end
+    AutoBlockAnimsBox:AddToggle("AutoBlockAnim_"..anim, {
+        Text = anim,
+        Default = _G.AutoBlockAnimFlags[anim],
+        Callback = function(state) _G.AutoBlockAnimFlags[anim] = state end
+    })
+end
+
+local dangerousAnims = setmetatable({}, {
+    __index = function(_, k)
+        return _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[k] or false
     end
 })
