@@ -1084,18 +1084,6 @@ local function reapplyAllPatches()
         end
     end
     updateNoKnockbackPatch()
-    -- Восстановление параметров авто-блока из последнего загруженного конфига
-    local data = _G._lastConfigData
-    if type(data) == "table" then
-        if AutoBlockReleaseTimeSlider and data.AutoBlockReleaseTime then safeSet(AutoBlockReleaseTimeSlider, data.AutoBlockReleaseTime) end
-        if AutoBlockIgnoreTimeSlider and data.AutoBlockIgnoreTime then safeSet(AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime) end
-        if AutoBlockRadiusSlider and data.AutoBlockRadius then safeSet(AutoBlockRadiusSlider, data.AutoBlockRadius) end
-        if data.AutoBlockAnimFlags and _G.AutoBlockAnimFlags then
-            for k, v in pairs(data.AutoBlockAnimFlags) do
-                if _G.AutoBlockAnimFlags[k] ~= nil then _G.AutoBlockAnimFlags[k] = v end
-            end
-        end
-    end
 end
 
 LocalPlayer.CharacterAdded:Connect(function()
@@ -2834,8 +2822,18 @@ local function saveConfig(name)
     data.AutoQEWin = autoQEWinToggle and autoQEWinToggle.Value or false
     data.Moveset = movesetDropdown and movesetDropdown.Value or "Default"
     data.CustomColors = {Main = customColors.Main, Accent = customColors.Accent, Background = customColors.Background, Font = customColors.Font}
+    data.CustomColorToggles = {
+        Main = ThemeBox.Flags and ThemeBox.Flags.CustomMainColorToggle and ThemeBox.Flags.CustomMainColorToggle.Value or false,
+        Accent = ThemeBox.Flags and ThemeBox.Flags.CustomAccentColorToggle and ThemeBox.Flags.CustomAccentColorToggle.Value or false,
+        Background = ThemeBox.Flags and ThemeBox.Flags.CustomBackgroundColorToggle and ThemeBox.Flags.CustomBackgroundColorToggle.Value or false,
+        Font = ThemeBox.Flags and ThemeBox.Flags.CustomFontColorToggle and ThemeBox.Flags.CustomFontColorToggle.Value or false
+    }
     data.ShowDisplayNick = showDisplayNickToggle and showDisplayNickToggle.Value or false
     data.ShowRealNick = showRealNickToggle and showRealNickToggle.Value or true
+    -- === Auto Block Settings ===
+    data.AutoBlockReleaseTime = AUTO_BLOCK_RELEASE_TIME
+    data.AutoBlockIgnoreTime = AUTO_BLOCK_IGNORE_TIME
+    data.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
     writefile(configFolder.."/"..name..configExt, game:GetService("HttpService"):JSONEncode(data))
     Library:Notify("Config saved: "..name)
     print("[Config] Saving config with AttackSpeed:", attackSpeedSlider and attackSpeedSlider.Value)
@@ -2971,8 +2969,47 @@ local function loadConfig(name)
     safeSet(multiCastMovesToggle, data.MultiCastMoves)
     safeSet(autoQEWinToggle, data.AutoQEWin)
     if movesetDropdown then safeSet(movesetDropdown, data.Moveset or "Default") end
+    if data.CustomColors then
+        customColors.Main = data.CustomColors.Main
+        customColors.Accent = data.CustomColors.Accent
+        customColors.Background = data.CustomColors.Background
+        customColors.Font = data.CustomColors.Font
+        Library.Scheme.MainColor = data.CustomColors.Main
+        Library.Scheme.AccentColor = data.CustomColors.Accent
+        Library.Scheme.BackgroundColor = data.CustomColors.Background
+        Library.Scheme.FontColor = data.CustomColors.Font
+        Library:UpdateColorsUsingRegistry()
+    end
+    if data.CustomColorToggles and ThemeBox.Flags then
+        if ThemeBox.Flags.CustomMainColorToggle then ThemeBox.Flags.CustomMainColorToggle:Set(data.CustomColorToggles.Main) end
+        if ThemeBox.Flags.CustomAccentColorToggle then ThemeBox.Flags.CustomAccentColorToggle:Set(data.CustomColorToggles.Accent) end
+        if ThemeBox.Flags.CustomBackgroundColorToggle then ThemeBox.Flags.CustomBackgroundColorToggle:Set(data.CustomColorToggles.Background) end
+        if ThemeBox.Flags.CustomFontColorToggle then ThemeBox.Flags.CustomFontColorToggle:Set(data.CustomColorToggles.Font) end
+    end
     if showDisplayNickToggle then safeSet(showDisplayNickToggle, data.ShowDisplayNick or false) end
     if showRealNickToggle then safeSet(showRealNickToggle, data.ShowRealNick or true) end
+    -- === Auto Block Settings ===
+    if data.AutoBlockReleaseTime then
+        AUTO_BLOCK_RELEASE_TIME = data.AutoBlockReleaseTime
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider, data.AutoBlockReleaseTime)
+        end
+    end
+    if data.AutoBlockIgnoreTime then
+        AUTO_BLOCK_IGNORE_TIME = data.AutoBlockIgnoreTime
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime)
+        end
+    end
+    if data.AutoBlockAnimFlags then
+        _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+        for k, v in pairs(data.AutoBlockAnimFlags) do
+            _G.AutoBlockAnimFlags[k] = v
+            if AutoBlockAnimsBox and AutoBlockAnimsBox.Flags and AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k] then
+                safeSet(AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k], v)
+            end
+        end
+    end
     print("[Config] Loaded config value for AttackSpeed:", data.AttackSpeed)
     print("[Config] Loaded config value for PunchStunSpeed:", data.PunchStunSpeed)
 
@@ -2983,6 +3020,43 @@ local function loadConfig(name)
 
     Library:Notify("Config loaded: "..name)
 end
+
+ConfigBox:AddInput("ConfigName", {
+    Text = "Config Name",
+    Default = "Default",
+    Placeholder = "Enter config name...",
+    Callback = function(val) currentConfig = val end
+})
+configDropdown = ConfigBox:AddDropdown("ConfigList", {
+    Text = "Saved Configs",
+    Values = getConfigs(),
+    Default = 1,
+    Callback = function(val) currentConfig = val end
+})
+ConfigBox:AddButton({
+    Text = "Save Config",
+    Func = function() saveConfig(currentConfig) end
+})
+ConfigBox:AddButton({
+    Text = "Load Config",
+    Func = function() loadConfig(currentConfig) end
+})
+ConfigBox:AddButton({
+    Text = "Delete Config",
+    Func = function()
+        local path = configFolder.."/"..currentConfig..configExt
+        if isfile(path) then delfile(path) if configDropdown and configDropdown.SetValues then configDropdown:SetValues(getConfigs()) end Library:Notify({Title = "Config", Content = "Удалено: "..currentConfig, Duration = 2}) end
+    end
+})
+ConfigBox:AddButton({
+    Text = "Refresh list",
+    Func = function()
+        if configDropdown and configDropdown.SetValues then
+            configDropdown:SetValues(getConfigs())
+            Library:Notify({Title = "Config", Content = "Список конфигов обновлён", Duration = 2})
+        end
+    end
+})
 
 -- Автоматическое восстановление ESP для всех игроков (раз в 0.1 сек)
 spawn(function()
@@ -3036,7 +3110,7 @@ showRealNickToggle = ESPBox:AddToggle("ShowRealNickToggle", {
 })
 
 local autoBlockEnabled = false
-local autoBlockRadius = 20
+local autoBlockRadius = 15
 local autoBlockConn = nil
 
 local ignoreAnimNames = {
@@ -3139,38 +3213,15 @@ local function connectAllMobileBlockHandlers()
     end
 end
 
-local allMovesetNames = {"Akaza", "Butter", "Default", "Giyu", "Gyutaro", "Rengoku", "Slayer", "Tanjiro", "Tengen", "Zenitsu"}
-local function isAnyM1AnimPlayingNearby(radius)
-    local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return false end
-    local myPos = myChar.HumanoidRootPart.Position
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
-            if dist <= (radius or autoBlockRadius) then
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid and humanoid.Animator then
-                    for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
-                        local animName = track.Name
-                        if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" then
-                            return true
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
-    Tooltip = "Automatically blocks if dangerous animation is near you (radius 20)",
+    Tooltip = "Automatically blocks if dangerous animation is near you (radius 15)",
     Callback = function(state)
         autoBlockEnabled = state
         if autoBlockConn then autoBlockConn:Disconnect() autoBlockConn = nil end
         if attackingListener then attackingListener:Disconnect() attackingListener = nil end
+        -- Отключаем мобильные обработчики при выключении
         if not state then
             if autoBlockTouchConn then autoBlockTouchConn:Disconnect() autoBlockTouchConn = nil end
             for _, conn in pairs(autoBlockButtonConns) do conn:Disconnect() end
@@ -3178,6 +3229,7 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
         end
         local myData = CharacterDataModule.GetData()
         if state then
+            -- Подключаем мобильные обработчики
             connectAllMobileBlockHandlers()
             attackingListener = CharacterDataModule.ListenTo("Attacking"):Connect(function(val)
                 if val > 0 then
@@ -3188,14 +3240,35 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
             autoBlockConn = task.spawn(function()
                 while autoBlockEnabled do
                     local now = tick()
-                    local mustBlock = isAnyM1AnimPlayingNearby(20)
+                    local danger = false
+                    local myChar = LocalPlayer.Character
+                    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                        local myPos = myChar.HumanoidRootPart.Position
+                        for _, player in ipairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                if dist <= autoBlockRadius then
+                                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                    if humanoid and humanoid.Animator then
+                                        for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                            local animName = track.Name
+                                            if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" or dangerousAnims[animName] then
+                                                danger = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if danger then break end
+                        end
+                    end
                     local shouldBlock
-                    if mustBlock then
+                    if danger then
                         shouldBlock = true
-                        lastAttackTime = 0
+                        lastAttackTime = 0 -- сбрасываем отпускание блока, если опасность
                         ignoreAttackUntil = 0
                     else
-                        -- Обычная логика release time
                         if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
                             shouldBlock = false
                         elseif now < ignoreAttackUntil then
@@ -3341,63 +3414,3 @@ if UserInputService.TouchEnabled then
         end
     end)
 end
-
-AutoBlockSettingsBox:AddSlider("AutoBlockRadiusSlider", {
-    Text = "Auto Block Radius",
-    Min = 5,
-    Max = 50,
-    Default = 20,
-    Rounding = 0,
-    Tooltip = "Radius to check for dangerous animations (M1/M2)",
-    Callback = function(val) autoBlockRadius = val end
-})
-
-ConfigBox:AddInput("ConfigName", {
-    Text = "Config Name",
-    Default = "Default",
-    Placeholder = "Enter config name...",
-    Callback = function(val) currentConfig = val end
-})
-configDropdown = ConfigBox:AddDropdown("ConfigList", {
-    Text = "Saved Configs",
-    Values = getConfigs(),
-    Default = 1,
-    Callback = function(val) currentConfig = val end
-})
-ConfigBox:AddButton({
-    Text = "Save Config",
-    Func = function() saveConfig(currentConfig) end
-})
-ConfigBox:AddButton({
-    Text = "Load Config",
-    Func = function()
-        if currentConfig then
-            local now = tick()
-            lastLoadConfigTime = now
-            loadConfig(currentConfig)
-            task.spawn(function()
-                task.wait(0.6)
-                -- Только если не было нового нажатия за это время
-                if lastLoadConfigTime == now then
-                    loadConfig(currentConfig)
-                end
-            end)
-        end
-    end
-})
-ConfigBox:AddButton({
-    Text = "Delete Config",
-    Func = function()
-        local path = configFolder.."/"..currentConfig..configExt
-        if isfile(path) then delfile(path) if configDropdown and configDropdown.SetValues then configDropdown:SetValues(getConfigs()) end Library:Notify({Title = "Config", Content = "Удалено: "..currentConfig, Duration = 2}) end
-    end
-})
-ConfigBox:AddButton({
-    Text = "Refresh list",
-    Func = function()
-        if configDropdown and configDropdown.SetValues then
-            configDropdown:SetValues(getConfigs())
-            Library:Notify({Title = "Config", Content = "Список конфигов обновлён", Duration = 2})
-        end
-    end
-})
