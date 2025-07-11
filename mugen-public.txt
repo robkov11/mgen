@@ -16,6 +16,8 @@ local GlobalMoveset = require(ReplicatedStorage.Knit.Modules.GlobalMoveset)
 local TagModule = require(ReplicatedStorage.Knit.Modules.TagModule)
 local RaycastModule = require(ReplicatedStorage.Knit.Modules.Raycast)
 
+_G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+
 -- Патч CanAttack (No Stun/No Slow)
 MovesetHandler.CanAttack = function(...)
     return true
@@ -52,66 +54,61 @@ noStunToggle = MainLeft:AddToggle("NoStunToggle", {
     Default = false,
     Tooltip = "Removes stun (BETA, BETTER TO USE NO SLOW + NO KNOCKBACK)",
     Callback = function(state)
-        noStunEnabled = state
-        if noStunConn then
-            noStunConn:Disconnect()
-            noStunConn = nil
-        end
-        if state then
-            local Players = game:GetService("Players")
-            local LocalPlayer = Players.LocalPlayer
-            local function removeStunAndRestoreSpeed()
-                local char = LocalPlayer.Character
-                if char then
-                    local hum = char:FindFirstChildWhichIsA("Humanoid")
-                    if hum then
-                        -- Remove ragdoll/platformstand
-                        hum.PlatformStand = false
-                        hum.AutoRotate = true
-                        -- Remove all stun states
-                        for _, state in ipairs({
-                            Enum.HumanoidStateType.FallingDown,
-                            Enum.HumanoidStateType.Ragdoll,
-                            Enum.HumanoidStateType.Physics,
-                            Enum.HumanoidStateType.GettingUp,
-                            Enum.HumanoidStateType.Seated,
-                        }) do
-                            hum:SetStateEnabled(state, false)
+        if isLoadingConfig then return end
+        task.spawn(function()
+            noStunEnabled = state
+            if noStunConn then safeDisconnect(noStunConn) end
+            if state then
+                local Players = game:GetService("Players")
+                local LocalPlayer = Players.LocalPlayer
+                local function removeStunAndRestoreSpeed()
+                    local char = LocalPlayer.Character
+                    if char then
+                        local hum = char:FindFirstChildWhichIsA("Humanoid")
+                        if hum then
+                            hum.PlatformStand = false
+                            hum.AutoRotate = true
+                            for _, state in ipairs({
+                                Enum.HumanoidStateType.FallingDown,
+                                Enum.HumanoidStateType.Ragdoll,
+                                Enum.HumanoidStateType.Physics,
+                                Enum.HumanoidStateType.GettingUp,
+                                Enum.HumanoidStateType.Seated,
+                            }) do
+                                hum:SetStateEnabled(state, false)
+                            end
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                            if hum.WalkSpeed < 10 then hum.WalkSpeed = 10 end
+                            if hum.JumpPower < 35 then hum.JumpPower = 35 end
                         end
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                        -- Восстановление скорости
-                        if hum.WalkSpeed < 10 then hum.WalkSpeed = 10 end
-                        if hum.JumpPower < 35 then hum.JumpPower = 35 end
-                    end
-                    -- Remove stun/slow attributes
-                    if char:GetAttribute("HardStun") and char:GetAttribute("HardStun") > 0 then
-                        char:SetAttribute("HardStun", 0)
-                    end
-                    if char:GetAttribute("Stun") and char:GetAttribute("Stun") > 0 then
-                        char:SetAttribute("Stun", 0)
-                    end
-                    if char:GetAttribute("PunchStun") and char:GetAttribute("PunchStun") > 0 then
-                        char:SetAttribute("PunchStun", 0)
-                    end
-                    if char:GetAttribute("Slow") then
-                        char:SetAttribute("Slow", nil)
+                        if char:GetAttribute("HardStun") and char:GetAttribute("HardStun") > 0 then
+                            char:SetAttribute("HardStun", 0)
+                        end
+                        if char:GetAttribute("Stun") and char:GetAttribute("Stun") > 0 then
+                            char:SetAttribute("Stun", 0)
+                        end
+                        if char:GetAttribute("PunchStun") and char:GetAttribute("PunchStun") > 0 then
+                            char:SetAttribute("PunchStun", 0)
+                        end
+                        if char:GetAttribute("Slow") then
+                            char:SetAttribute("Slow", nil)
+                        end
                     end
                 end
+                noStunConn = game:GetService("RunService").RenderStepped:Connect(removeStunAndRestoreSpeed)
+                Library:Notify({
+                    Title = "No Stun",
+                    Content = "No Stun is now ENABLED.",
+                    Duration = 2
+                })
+            else
+                Library:Notify({
+                    Title = "No Stun",
+                    Content = "No Stun is now DISABLED.",
+                    Duration = 2
+                })
             end
-            -- Run every frame
-            noStunConn = game:GetService("RunService").RenderStepped:Connect(removeStunAndRestoreSpeed)
-            Library:Notify({
-                Title = "No Stun",
-                Content = "No Stun is now ENABLED.",
-                Duration = 2
-            })
-        else
-            Library:Notify({
-                Title = "No Stun",
-                Content = "No Stun is now DISABLED.",
-                Duration = 2
-            })
-        end
+        end)
     end
 })
 
@@ -128,11 +125,9 @@ antiHitboxToggle = CombatExploitsBox:AddToggle("AntiHitboxToggle", {
     Default = false,
     Tooltip = "Constantly sets your character's 'Hitbox' attribute to 0.",
     Callback = function(state)
+        if isLoadingConfig then return end
         antiHitboxEnabled = state
-        if antiHitboxConnection then
-            antiHitboxConnection:Disconnect()
-            antiHitboxConnection = nil
-        end
+        if antiHitboxConnection then safeDisconnect(antiHitboxConnection) end
         if state then
             local function setHitboxAttribute()
                 local char = LocalPlayer.Character
@@ -160,6 +155,87 @@ antiHitboxToggle = CombatExploitsBox:AddToggle("AntiHitboxToggle", {
 local VisualTab = Window:AddTab("Visual", "eye")
 local ESPBox = VisualTab:AddLeftGroupbox("ESP Settings")
 local UIBox = VisualTab:AddRightGroupbox("UI Settings")
+-- === Auto Block Settings Tab ===
+local AutoBlockTab = Window:AddTab("Auto Block Settings", "shield")
+local AutoBlockSettingsBox = AutoBlockTab:AddLeftGroupbox("Timing Settings")
+local AutoBlockAnimsBox = AutoBlockTab:AddRightGroupbox("Dangerous Animations")
+
+-- Тайминги (слайдеры)
+_G.AUTO_BLOCK_RELEASE_TIME = _G.AUTO_BLOCK_RELEASE_TIME or 0.26
+_G.AUTO_BLOCK_IGNORE_TIME = _G.AUTO_BLOCK_IGNORE_TIME or 0.23
+
+AutoBlockSettingsBox:AddSlider("AutoBlockReleaseTimeSlider", {
+    Text = "Release Time (sec)",
+    Min = 0.1,
+    Max = 1.0,
+    Default = _G.AUTO_BLOCK_RELEASE_TIME,
+    Rounding = 2,
+    Tooltip = "How long to release block after attack",
+    Callback = function(val) _G.AUTO_BLOCK_RELEASE_TIME = val end
+})
+AutoBlockSettingsBox:AddSlider("AutoBlockIgnoreTimeSlider", {
+    Text = "Ignore Time (sec)",
+    Min = 0.1,
+    Max = 1.0,
+    Default = _G.AUTO_BLOCK_IGNORE_TIME,
+    Rounding = 2,
+    Tooltip = "How long to ignore new attacks after block release",
+    Callback = function(val) _G.AUTO_BLOCK_IGNORE_TIME = val end
+})
+
+strictDangerousAnimBlockToggle = AutoBlockSettingsBox:AddToggle("StrictDangerousAnimBlockToggle", {
+    Text = "Strict Dangerous Anim Block",
+    Default = true,
+    Tooltip = "If enabled, auto-block will always block when dangerous animations (M1-M4/skills) are near you (uses radius). If disabled, auto-block ignores them and works only by your input/release time.",
+    Callback = function(state)
+        if isLoadingConfig then return end
+        strictDangerousAnimBlockEnabled = state
+    end
+})
+
+-- Список всех опасных анимаций
+local allDangerousAnims = {
+    "M1-1", "M1-2", "M1-3", "M1-4", "M2",
+    "Parry", "Destruct", "Disorder",
+    "RampantArc", "SickleThrow",
+    -- Новые анимации Gyutaro FreshCleave
+    "FreshCleaveStart", "FreshCleaveHit", "FreshCleaveVictim",
+    "FlameBarrage", "FlameBarrageFinisher", "RisingSun",
+    "FlowingDance", "FlowingDanceNew", "ShiningSun", "WaterSurfaceSlash", "WaterWheel",
+    "LoudAct", "MusicalScore", "Performance", "Resounding",
+    "EightFoldLand", "EightFoldWindUp", "FallAsleep", "SixFoldBlocked",
+    "SixFoldRush", "SixFoldWindUp", "ThunderClapEnd", "ThunderClapStartup"
+}
+
+local selectedDangerousAnims = allDangerousAnims
+local dangerousAnimsDropdown = AutoBlockAnimsBox:AddDropdown("DangerousAnimsDropdown", {
+    Text = "Опасные анимации (выбери любые)",
+    Values = allDangerousAnims,
+    Multi = true,
+    Default = allDangerousAnims,
+    Callback = function(selected)
+        _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+        if not selected or #selected == 0 then
+            selectedDangerousAnims = allDangerousAnims
+            dangerousAnimsDropdown:SetValues(allDangerousAnims)
+            -- Вызов Callback вручную для синхронизации
+            if dangerousAnimsDropdown.Callback then
+                dangerousAnimsDropdown.Callback(allDangerousAnims)
+            end
+            return
+        end
+        selectedDangerousAnims = selected
+        for _, anim in ipairs(allDangerousAnims) do
+            _G.AutoBlockAnimFlags[anim] = table.find(selected, anim) ~= nil
+        end
+    end
+})
+
+local dangerousAnims = setmetatable({}, {
+    __index = function(_, k)
+        return _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[k] or false
+    end
+})
 
 -- ESP Variables
 local MaxDistance = 400.5
@@ -199,7 +275,7 @@ local function CreateNametag(Player)
         if ShowDisplayNick then
             NameTextLabel.Text = Player.DisplayName
         elseif ShowRealNick then
-            NameTextLabel.Text = Player.Name
+        NameTextLabel.Text = Player.Name
         else
             NameTextLabel.Text = ""
         end
@@ -225,7 +301,7 @@ local function CreateNametag(Player)
         HealthBarBackground.Name = "HealthBarBackground"
         HealthBarBackground.Size = UDim2.new(1, 0, 0, 10)
         HealthBarBackground.Position = UDim2.new(0, 0, 0.8, 0)
-        HealthBarBackground.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        HealthBarBackground.BackgroundColor3 = (Library and Library.Scheme and Library.Scheme.BackgroundColor) or Color3.fromRGB(50, 50, 50)
         HealthBarBackground.BorderColor3 = Color3.fromRGB(0, 0, 0)
         HealthBarBackground.BorderSizePixel = 1
         HealthBarBackground.Parent = BillboardGui
@@ -233,7 +309,7 @@ local function CreateNametag(Player)
         local HealthBarFill = Instance.new("Frame")
         HealthBarFill.Name = "HealthBarFill"
         HealthBarFill.Size = UDim2.new(1, 0, 1, 0)
-        HealthBarFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        HealthBarFill.BackgroundColor3 = (Library and Library.Scheme and Library.Scheme.BackgroundColor) or Color3.fromRGB(0, 255, 0)
         HealthBarFill.Parent = HealthBarBackground
 
         BillboardGui.Parent = Head
@@ -364,6 +440,7 @@ espPlayersToggle = ESPBox:AddToggle("ESPPlayersToggle", {
     Default = false,
     Tooltip = "Shows player positions and names",
     Callback = function(state)
+        if isLoadingConfig then return end
         NametagsEnabled = state
         HighlightEnabled = state
         
@@ -400,6 +477,7 @@ espDistanceSlider = ESPBox:AddSlider("ESPDistanceSlider", {
     Rounding = 1,
     Tooltip = "Maximum distance for ESP to show",
     Callback = function(val)
+        if isLoadingConfig then return end
         MaxDistance = val
     end
 })
@@ -419,19 +497,22 @@ hidePostureBarToggle = UIBox:AddToggle("HidePostureBarToggle", {
     Default = false,
     Tooltip = "Hides the posture bar UI.",
     Callback = function(state)
-        hidePostureBarEnabled = state
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Torso") then
-            local postureBar = char.Torso:FindFirstChild("PostureBar")
-            if postureBar then
-                postureBar.Enabled = not state
+        if isLoadingConfig then return end
+        task.spawn(function()
+            hidePostureBarEnabled = state
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("Torso") then
+                local postureBar = char.Torso:FindFirstChild("PostureBar")
+                if postureBar then
+                    postureBar.Enabled = not state
+                end
             end
-        end
-        Library:Notify({
-            Title = "Hide Posture Bar",
-            Content = "Posture Bar UI visibility set to " .. tostring(not state) .. ".",
-            Duration = 2
-        })
+            Library:Notify({
+                Title = "Hide Posture Bar",
+                Content = "Posture Bar UI visibility set to " .. tostring(not state) .. ".",
+                Duration = 2
+            })
+        end)
     end
 })
 
@@ -441,19 +522,22 @@ hideParryBarToggle = UIBox:AddToggle("HideParryBarToggle", {
     Default = false,
     Tooltip = "Hides the parry bar UI.",
     Callback = function(state)
-        hideParryBarEnabled = state
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Torso") then
-            local parryBar = char.Torso:FindFirstChild("ParryBar")
-            if parryBar then
-                parryBar.Enabled = not state
+        if isLoadingConfig then return end
+        task.spawn(function()
+            hideParryBarEnabled = state
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("Torso") then
+                local parryBar = char.Torso:FindFirstChild("ParryBar")
+                if parryBar then
+                    parryBar.Enabled = not state
+                end
             end
-        end
-        Library:Notify({
-            Title = "Hide Parry Bar",
-            Content = "Parry Bar UI visibility set to " .. tostring(not state) .. ".",
-            Duration = 2
-        })
+            Library:Notify({
+                Title = "Hide Parry Bar",
+                Content = "Parry Bar UI visibility set to " .. tostring(not state) .. ".",
+                Duration = 2
+            })
+        end)
     end
 })
 
@@ -470,13 +554,19 @@ gyutaroAutoAimToggle = StyleBox:AddToggle("GyutaroAutoAimToggle", {
     Text = "Gyutaro: Auto Aim",
     Default = gyutaroSettings.autoAim,
     Tooltip = "Sickles will fly to the nearest enemy",
-    Callback = function(state) gyutaroSettings.autoAim = state end
+    Callback = function(state)
+        if isLoadingConfig then return end
+        gyutaroSettings.autoAim = state
+    end
 })
 gyutaroMultiThrowToggle = StyleBox:AddToggle("GyutaroMultiThrowToggle", {
     Text = "Gyutaro: Multi Throw",
     Default = gyutaroSettings.multiThrow,
     Tooltip = "Throws several sickles in a row",
-    Callback = function(state) gyutaroSettings.multiThrow = state end
+    Callback = function(state)
+        if isLoadingConfig then return end
+        gyutaroSettings.multiThrow = state
+    end
 })
 gyutaroMultiThrowCountSlider = StyleBox:AddSlider("GyutaroMultiThrowCount", {
     Text = "Gyutaro: Sickle Count",
@@ -485,13 +575,19 @@ gyutaroMultiThrowCountSlider = StyleBox:AddSlider("GyutaroMultiThrowCount", {
     Max = 5,
     Rounding = 0,
     Tooltip = "How many sickles to throw at once",
-    Callback = function(val) gyutaroSettings.multiThrowCount = val end
+    Callback = function(val)
+        if isLoadingConfig then return end
+        gyutaroSettings.multiThrowCount = val
+    end
 })
 gyutaroAutoTargetToggle = StyleBox:AddToggle("GyutaroAutoTargetToggle", {
     Text = "Gyutaro: Auto Target",
     Default = gyutaroSettings.autoTarget,
     Tooltip = "Automatically selects the nearest enemy and uses the skill",
-    Callback = function(state) gyutaroSettings.autoTarget = state end
+    Callback = function(state)
+        if isLoadingConfig then return end
+        gyutaroSettings.autoTarget = state
+    end
 })
 gyutaroAutoTargetRadiusSlider = StyleBox:AddSlider("GyutaroAutoTargetRadius", {
     Text = "Gyutaro: Auto Target Radius",
@@ -500,7 +596,10 @@ gyutaroAutoTargetRadiusSlider = StyleBox:AddSlider("GyutaroAutoTargetRadius", {
     Max = 100,
     Rounding = 0,
     Tooltip = "Radius to search for the nearest enemy for auto target",
-    Callback = function(val) gyutaroSettings.autoTargetRadius = val end
+    Callback = function(val)
+        if isLoadingConfig then return end
+        gyutaroSettings.autoTargetRadius = val
+    end
 })
 
 -- === Gyutaro Auto Target (исправлено) ===
@@ -734,6 +833,7 @@ akazaAirControlToggle = AkazaBox:AddToggle("AkazaAirControlToggle", {
     Default = false,
     Tooltip = "Maintain full control while using Akaza's AirType move in the air",
     Callback = function(state)
+        if isLoadingConfig then return end
         akazaAirControlEnabled = state
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         
@@ -1051,39 +1151,131 @@ end)
 
 -- Универсальный обработчик для повторного применения патчей после смерти персонажа
 local function reapplyAllPatches()
-    if noStunEnabled and MainLeft.Flags and MainLeft.Flags.NoStunToggle then
-        MainLeft.Flags.NoStunToggle:Set(true)
+    -- Главные тогглы и функции
+    if noStunToggle and noStunToggle.Value then safeSet(noStunToggle, true) end
+    if autoBlockToggle and autoBlockToggle.Value then safeSet(autoBlockToggle, true) end
+    if antiHitboxToggle and antiHitboxToggle.Value then safeSet(antiHitboxToggle, true) end
+    if espPlayersToggle and espPlayersToggle.Value then safeSet(espPlayersToggle, true) end
+    if hidePostureBarToggle and hidePostureBarToggle.Value then safeSet(hidePostureBarToggle, true) end
+    if hideParryBarToggle and hideParryBarToggle.Value then safeSet(hideParryBarToggle, true) end
+    if gyutaroAutoAimToggle and gyutaroAutoAimToggle.Value then safeSet(gyutaroAutoAimToggle, true) end
+    if gyutaroMultiThrowToggle and gyutaroMultiThrowToggle.Value then safeSet(gyutaroMultiThrowToggle, true) end
+    if gyutaroAutoTargetToggle and gyutaroAutoTargetToggle.Value then safeSet(gyutaroAutoTargetToggle, true) end
+    if akazaAirControlToggle and akazaAirControlToggle.Value then safeSet(akazaAirControlToggle, true) end
+    if antiBleedToggle and antiBleedToggle.Value then safeSet(antiBleedToggle, true) end
+    if antiPoisonToggle and antiPoisonToggle.Value then safeSet(antiPoisonToggle, true) end
+    if antiSlowToggle and antiSlowToggle.Value then safeSet(antiSlowToggle, true) end
+    if antiRootToggle and antiRootToggle.Value then safeSet(antiRootToggle, true) end
+    if antiFreezeToggle and antiFreezeToggle.Value then safeSet(antiFreezeToggle, true) end
+    if antiStunToggle and antiStunToggle.Value then safeSet(antiStunToggle, true) end
+    if antiCombatTagToggle and antiCombatTagToggle.Value then safeSet(antiCombatTagToggle, true) end
+    if attackAnyStatusToggle and attackAnyStatusToggle.Value then safeSet(attackAnyStatusToggle, true) end
+    if fastHeavyClashToggle and fastHeavyClashToggle.Value then safeSet(fastHeavyClashToggle, true) end
+    if removeMovementLimitsToggle and removeMovementLimitsToggle.Value then safeSet(removeMovementLimitsToggle, true) end
+    if autoRemoveKnockedToggle and autoRemoveKnockedToggle.Value then safeSet(autoRemoveKnockedToggle, true) end
+    if dashTowardsCameraToggle and dashTowardsCameraToggle.Value then safeSet(dashTowardsCameraToggle, true) end
+    if noDashCooldownToggle and noDashCooldownToggle.Value then safeSet(noDashCooldownToggle, true) end
+    if noAttackCooldownToggle and noAttackCooldownToggle.Value then safeSet(noAttackCooldownToggle, true) end
+    if noJumpCooldownToggle and noJumpCooldownToggle.Value then safeSet(noJumpCooldownToggle, true) end
+    if noHeavyAttackCooldownToggle and noHeavyAttackCooldownToggle.Value then safeSet(noHeavyAttackCooldownToggle, true) end
+    if universalAttackToggle and universalAttackToggle.Value then safeSet(universalAttackToggle, true) end
+    if forceBlockToggle and forceBlockToggle.Value then safeSet(forceBlockToggle, true) end
+    if customAttackRangeToggle and customAttackRangeToggle.Value then safeSet(customAttackRangeToggle, true) end
+    if infinitePostureToggle and infinitePostureToggle.Value then safeSet(infinitePostureToggle, true) end
+    if infiniteJumpsToggle and infiniteJumpsToggle.Value then safeSet(infiniteJumpsToggle, true) end
+    if fastRunAlwaysOnToggle and fastRunAlwaysOnToggle.Value then safeSet(fastRunAlwaysOnToggle, true) end
+    if fastRunToggle and fastRunToggle.Value then safeSet(fastRunToggle, true) end
+    if instantAttackToggle and instantAttackToggle.Value then safeSet(instantAttackToggle, true) end
+    if noKnockbackToggle and noKnockbackToggle.Value then safeSet(noKnockbackToggle, true) end
+    if stopStunAnimsToggle and stopStunAnimsToggle.Value then safeSet(stopStunAnimsToggle, true) end
+    if noKnockbackMeleeToggle and noKnockbackMeleeToggle.Value then safeSet(noKnockbackMeleeToggle, true) end
+    if soundSkillNoSlowToggle and soundSkillNoSlowToggle.Value then safeSet(soundSkillNoSlowToggle, true) end
+    if soundLoudActAutoAimToggle and soundLoudActAutoAimToggle.Value then safeSet(soundLoudActAutoAimToggle, true) end
+    if soundSkillRealRangeToggle and soundSkillRealRangeToggle.Value then safeSet(soundSkillRealRangeToggle, true) end
+    if fastFlyingSickleToggle and fastFlyingSickleToggle.Value then safeSet(fastFlyingSickleToggle, true) end
+    if multiCastMovesToggle and multiCastMovesToggle.Value then safeSet(multiCastMovesToggle, true) end
+    if autoQEWinToggle and autoQEWinToggle.Value then safeSet(autoQEWinToggle, true) end
+    -- Слайдеры и инпуты (пример для основных)
+    if espDistanceSlider then safeSet(espDistanceSlider, espDistanceSlider.Value) end
+    if heavyClashCooldownSlider then safeSet(heavyClashCooldownSlider, heavyClashCooldownSlider.Value) end
+    if attackSpeedSlider then safeSet(attackSpeedSlider, attackSpeedSlider.Value) end
+    if punchStunSpeedSlider then safeSet(punchStunSpeedSlider, punchStunSpeedSlider.Value) end
+    if hardStunSpeedSlider then safeSet(hardStunSpeedSlider, hardStunSpeedSlider.Value) end
+    if stunSpeedSlider then safeSet(stunSpeedSlider, stunSpeedSlider.Value) end
+    if blockingSpeedSlider then safeSet(blockingSpeedSlider, blockingSpeedSlider.Value) end
+    if knockedSpeedSlider then safeSet(knockedSpeedSlider, knockedSpeedSlider.Value) end
+    if frontDashAmountInput then safeSet(frontDashAmountInput, frontDashAmountInput.Value) end
+    if backDashAmountInput then safeSet(backDashAmountInput, backDashAmountInput.Value) end
+    if leftDashAmountInput then safeSet(leftDashAmountInput, leftDashAmountInput.Value) end
+    if rightDashAmountInput then safeSet(rightDashAmountInput, rightDashAmountInput.Value) end
+    if customAttackRangeSlider then safeSet(customAttackRangeSlider, customAttackRangeSlider.Value) end
+    if customAttackFarAmountSlider then safeSet(customAttackFarAmountSlider, customAttackFarAmountSlider.Value) end
+    if customAttackCloseAmountSlider then safeSet(customAttackCloseAmountSlider, customAttackCloseAmountSlider.Value) end
+    if customAttackCloseUpRangeSlider then safeSet(customAttackCloseUpRangeSlider, customAttackCloseUpRangeSlider.Value) end
+    if customAttackTooFarRangeSlider then safeSet(customAttackTooFarRangeSlider, customAttackTooFarRangeSlider.Value) end
+    if loudActVFXScaleSlider then safeSet(loudActVFXScaleSlider, loudActVFXScaleSlider.Value) end
+    if musicalScoreVFXScaleSlider then safeSet(musicalScoreVFXScaleSlider, musicalScoreVFXScaleSlider.Value) end
+    if performanceVFXScaleSlider then safeSet(performanceVFXScaleSlider, performanceVFXScaleSlider.Value) end
+    if resoundingVFXScaleSlider then safeSet(resoundingVFXScaleSlider, resoundingVFXScaleSlider.Value) end
+    if movesetDropdown then safeSet(movesetDropdown, movesetDropdown.Value) end
+    if fastRunKeyDropdown then safeSet(fastRunKeyDropdown, fastRunKeyDropdown.Value) end
+    -- ESP никнеймы
+    if showDisplayNickToggle and showDisplayNickToggle.Value then safeSet(showDisplayNickToggle, true) end
+    if showRealNickToggle and showRealNickToggle.Value then safeSet(showRealNickToggle, true) end
+    -- === AutoBlock: восстановление всех настроек ===
+    if autoBlockToggle then safeSet(autoBlockToggle, autoBlockToggle.Value) end
+    if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags then
+        if AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider, AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider.Value)
+        end
+        if AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider.Value)
+        end
+        if AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle then
+            safeSet(AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle, AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle.Value)
+        end
     end
-    if autoBlockEnabled and MainLeft.Flags and MainLeft.Flags.AutoBlockToggle then
-        MainLeft.Flags.AutoBlockToggle:Set(true)
+    if dangerousAnimsDropdown and selectedDangerousAnims then
+        dangerousAnimsDropdown.Values = allDangerousAnims
+        safeSet(dangerousAnimsDropdown, selectedDangerousAnims)
     end
-    if attackWhileStunnedEnabled and MainLeft.Flags and MainLeft.Flags.AttackWhileStunnedToggle then
-        MainLeft.Flags.AttackWhileStunnedToggle:Set(true)
+    if AutoBlockAnimsBox and AutoBlockAnimsBox.Flags then
+        for anim, _ in pairs(_G.AutoBlockAnimFlags) do
+            local toggle = AutoBlockAnimsBox.Flags["AutoBlockAnim_"..anim]
+            if toggle then
+                safeSet(toggle, toggle.Value)
+            end
+        end
     end
-    if antiKnockbackEnabled and CombatExploitsBox.Flags and CombatExploitsBox.Flags.AntiKnockbackToggle then
-        CombatExploitsBox.Flags.AntiKnockbackToggle:Set(true)
-    end
-    if antiHitboxEnabled and CombatExploitsBox.Flags and CombatExploitsBox.Flags.AntiHitboxToggle then
-        CombatExploitsBox.Flags.AntiHitboxToggle:Set(true)
-    end
-    if noSmokeEnabled and ESPBox.Flags and ESPBox.Flags.NoSmokeToggle then
-        ESPBox.Flags.NoSmokeToggle:Set(true)
-    end
-    if hidePostureBarEnabled and UIBox.Flags and UIBox.Flags.HidePostureBarToggle then
-        UIBox.Flags.HidePostureBarToggle:Set(true)
-    end
-    if hideParryBarEnabled and UIBox.Flags and UIBox.Flags.HideParryBarToggle then
-        UIBox.Flags.HideParryBarToggle:Set(true)
-    end
-
-    patchGyutaroSkills()
+    -- Патчи и спец. функции
+    if type(patchGyutaroSkills)=="function" then patchGyutaroSkills() end
     if akazaAirControlEnabled then
-        local akazaAirControlToggle = AkazaBox.Flags.AkazaAirControlToggle
+        local akazaAirControlToggle = AkazaBox.Flags and AkazaBox.Flags.AkazaAirControlToggle
         if akazaAirControlToggle then
             akazaAirControlToggle:Set(true)
         end
     end
-    updateNoKnockbackPatch()
+    if type(updateNoKnockbackPatch)=="function" then updateNoKnockbackPatch() end
+    -- === AutoBlock: восстановление всех настроек ===
+    if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags then
+        if AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider, AUTO_BLOCK_RELEASE_TIME)
+        end
+        if AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+            safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, AUTO_BLOCK_IGNORE_TIME)
+        end
+    end
+    if AutoBlockAnimsBox and AutoBlockAnimsBox.Flags then
+        for anim, flag in pairs(_G.AutoBlockAnimFlags) do
+            local toggle = AutoBlockAnimsBox.Flags["AutoBlockAnim_"..anim]
+            if toggle then
+                safeSet(toggle, flag)
+            end
+        end
+    end
+    if autoBlockToggle and autoBlockToggle.Value then
+        autoBlockToggle:Set(true)
+    end
 end
 
 LocalPlayer.CharacterAdded:Connect(function()
@@ -1158,6 +1350,7 @@ attackAnyStatusToggle = BypassMainBox:AddToggle("AttackAnyStatusToggle", {
     Default = false,
     Tooltip = "No slowing even when stunned, blocked, etc.",
     Callback = function(state)
+        if isLoadingConfig then return end
         attackAnyStatusEnabled = state
         if state then
             MovesetHandler.CanAttack = function(...)
@@ -1187,6 +1380,7 @@ fastHeavyClashToggle = BypassMainBox:AddToggle("FastHeavyClashToggle", {
     Default = false,
     Tooltip = "Reduces HeavyClash cooldown to the specified value (sec)",
     Callback = function(state)
+        if isLoadingConfig then return end
         fastHeavyClashEnabled = state
         if state then
             TagModule.Cooldown = function(self, obj, time, tag, ...)
@@ -1221,11 +1415,9 @@ removeMovementLimitsToggle = BypassMainBox:AddToggle("RemoveMovementLimitsToggle
     Default = false,
     Tooltip = "Removes movement restrictions: PauseMovement, Knocked, Anchored, etc.",
     Callback = function(state)
+        if isLoadingConfig then return end
         removeMovementLimitsEnabled = state
-        if removeMovementLimitsConn then
-            removeMovementLimitsConn:Disconnect()
-            removeMovementLimitsConn = nil
-        end
+        if removeMovementLimitsConn then safeDisconnect(removeMovementLimitsConn) end
         if state then
             removeMovementLimitsConn = RunService.Heartbeat:Connect(function()
                 local char = LocalPlayer.Character
@@ -1248,7 +1440,7 @@ removeMovementLimitsToggle = BypassMainBox:AddToggle("RemoveMovementLimitsToggle
 
 -- === Сброс Blocking на каждом кадре для обхода блокировки атаки ===
 local removeBlockingConn = nil
-if removeBlockingConn then removeBlockingConn:Disconnect() end
+if removeBlockingConn then safeDisconnect(removeBlockingConn) end
 removeBlockingConn = RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if char and char:GetAttribute("Blocking") then
@@ -1287,12 +1479,12 @@ punchStunSpeedSlider = MainRight:AddSlider("PunchStunSpeedSlider", {
 })
 
 -- Удаляем старые RenderStepped/Heartbeat патчи, связанные с этими слайдерами
-if speedPatchConn then speedPatchConn:Disconnect() end
+if speedPatchConn then safeDisconnect(speedPatchConn) end
 speedPatchConn = nil
 
 -- Жёсткий патч скорости: выставляем WalkSpeed каждый кадр после всех изменений
 local forceSpeedConn = nil
-if forceSpeedConn then forceSpeedConn:Disconnect() end
+if forceSpeedConn then safeDisconnect(forceSpeedConn) end
 forceSpeedConn = game:GetService("RunService").RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
@@ -1677,6 +1869,7 @@ universalAttackToggle = BypassMainBox:AddToggle("UniversalAttackToggle", {
     Default = false,
     Tooltip = "Allows attacking while stunned or blocking.",
     Callback = function(state)
+        if isLoadingConfig then return end
         universalAttackEnabled = state
         pcall(function()
             local Knit = require(game:GetService("ReplicatedStorage").Knit.Packages.Knit)
@@ -1686,10 +1879,7 @@ universalAttackToggle = BypassMainBox:AddToggle("UniversalAttackToggle", {
             if not originalLeftClick then
                 originalLeftClick = CombatController.LeftClick
             end
-            if universalAttackConn then
-                universalAttackConn:Disconnect()
-                universalAttackConn = nil
-            end
+            if universalAttackConn then safeDisconnect(universalAttackConn) end
             if state then
                 universalAttackConn = RunService.Heartbeat:Connect(function()
                     if universalAttackEnabled then
@@ -1854,7 +2044,7 @@ infinitePostureToggle = BypassMainBox:AddToggle("InfinitePostureToggle", {
     Tooltip = "Your posture bar will never decrease.",
     Callback = function(state)
         infinitePostureEnabled = state
-        if infinitePostureConn then infinitePostureConn:Disconnect() infinitePostureConn = nil end
+        if infinitePostureConn then safeDisconnect(infinitePostureConn) infinitePostureConn = nil end
         if state then
             local Players = game:GetService("Players")
             local LocalPlayer = Players.LocalPlayer
@@ -1966,10 +2156,7 @@ noKnockbackToggle = BypassMainBox:AddToggle("NoKnockbackToggle", {
     Tooltip = "Prevents your character from being knocked back or ragdolled.",
     Callback = function(state)
         noKnockbackEnabled = state
-        if noKnockbackConn then
-            noKnockbackConn:Disconnect()
-            noKnockbackConn = nil
-        end
+        if noKnockbackConn then safeDisconnect(noKnockbackConn) end
         pcall(function()
             local ReplicatedStorage = game:GetService("ReplicatedStorage")
             local MovesetHandler = require(ReplicatedStorage.Knit.Modules.MovesetHandler)
@@ -1997,10 +2184,7 @@ noKnockbackToggle = BypassMainBox:AddToggle("NoKnockbackToggle", {
                 end)
             else
                 MovesetHandler.KnockbackVelocity = originalKnockbackVelocity
-                if noKnockbackConn then
-                    noKnockbackConn:Disconnect()
-                    noKnockbackConn = nil
-                end
+                if noKnockbackConn then safeDisconnect(noKnockbackConn) end
             end
         end)
     end
@@ -2049,10 +2233,7 @@ noKnockbackMeleeToggle = BypassMainBox:AddToggle("NoKnockbackMeleeToggle", {
 
 function updateNoKnockbackPatch()
     -- Отключаем старый RenderStepped
-    if noKnockbackConn then
-        noKnockbackConn:Disconnect()
-        noKnockbackConn = nil
-    end
+    if noKnockbackConn then safeDisconnect(noKnockbackConn) end
     -- Если оба выключены — возвращаем оригинал
     if not noKnockbackMeleeEnabled and not noKnockbackAllEnabled then
         MovesetHandler.KnockbackVelocity = originalKnockbackVelocity
@@ -2190,7 +2371,7 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local soundSkillConn = nil
-if soundSkillConn then soundSkillConn:Disconnect() end
+if soundSkillConn then safeDisconnect(soundSkillConn) end
 soundSkillConn = RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
@@ -2540,7 +2721,7 @@ end)
 local CharacterDataModule = require(ReplicatedStorage.Knit.Modules.Data.CharacterData)
 local RunService = game:GetService("RunService")
 local autoQEConn = nil
-if autoQEConn then autoQEConn:Disconnect() end
+if autoQEConn then safeDisconnect(autoQEConn) end
 autoQEConn = RunService.Heartbeat:Connect(function()
     if autoQEWinEnabled and QEController and QEController.Click then
         local data = CharacterDataModule.GetDataSoft and CharacterDataModule.GetDataSoft() or CharacterDataModule.GetData()
@@ -2647,6 +2828,7 @@ local MainColorToggle = ThemeBox:AddToggle("CustomMainColorToggle", {
     Text = "Custom Main Color",
     Default = false,
     Callback = function(state)
+        if isLoadingConfig then return end
         if not state then
             customColors.Main = nil
             applyTheme(currentTheme)
@@ -2667,6 +2849,7 @@ local AccentColorToggle = ThemeBox:AddToggle("CustomAccentColorToggle", {
     Text = "Custom Accent Color",
     Default = false,
     Callback = function(state)
+        if isLoadingConfig then return end
         if not state then
             customColors.Accent = nil
             applyTheme(currentTheme)
@@ -2687,6 +2870,7 @@ local BackgroundColorToggle = ThemeBox:AddToggle("CustomBackgroundColorToggle", 
     Text = "Custom Background Color",
     Default = false,
     Callback = function(state)
+        if isLoadingConfig then return end
         if not state then
             customColors.Background = nil
             applyTheme(currentTheme)
@@ -2694,11 +2878,11 @@ local BackgroundColorToggle = ThemeBox:AddToggle("CustomBackgroundColorToggle", 
     end
 })
 BackgroundColorToggle:AddColorPicker("CustomBackgroundColor", {
-    Default = Library.Scheme.BackgroundColor,
+    Default = Library.Scheme.BackgroundColor or Color3.fromRGB(15, 15, 15),
     Title = "Background Color",
     Callback = function(val)
         customColors.Background = val
-        Library.Scheme.BackgroundColor = val
+        Library.Scheme.BackgroundColor = val or Color3.fromRGB(15, 15, 15)
         Library:UpdateColorsUsingRegistry()
     end
 })
@@ -2707,6 +2891,7 @@ local FontColorToggle = ThemeBox:AddToggle("CustomFontColorToggle", {
     Text = "Custom Font Color",
     Default = false,
     Callback = function(state)
+        if isLoadingConfig then return end
         if not state then
             customColors.Font = nil
             applyTheme(currentTheme)
@@ -2727,6 +2912,7 @@ FontColorToggle:AddColorPicker("CustomFontColor", {
 local configFolder = "INVHubMugen"
 local configExt = ".json"
 if not isfolder(configFolder) then makefolder(configFolder) end
+local isUiReady = false -- Флаг готовности UI
 local function getConfigs()
     local files = listfiles(configFolder)
     local configs = {}
@@ -2739,16 +2925,29 @@ local function getConfigs()
     return configs
 end
 
+-- После создания всех UI-элементов (после последнего AddToggle/AddSlider/AddInput и т.д.)
+isUiReady = true
+
 -- === saveConfig ===
 local function safeSet(toggle, value)
-    if not toggle then return end
-    if typeof(toggle.SetValue) == "function" then
-        toggle:SetValue(value)
-    elseif typeof(toggle.Set) == "function" then
-        toggle:Set(value)
-    elseif toggle.Value ~= nil then
-        toggle.Value = value
+    if not toggle then
+        print("[safeSet] nil toggle!")
+        return
     end
+    task.spawn(function()
+        if type(toggle.SetValue) == "function" then
+            toggle:SetValue(value)
+        elseif type(toggle.Set) == "function" then
+            toggle:Set(value)
+        elseif toggle.Value ~= nil then
+            toggle.Value = value
+        else
+            print("[safeSet] toggle без методов:", toggle)
+        end
+        if type(toggle.Callback) == "function" then
+            toggle.Callback(value)
+        end
+    end)
 end
 
 local function saveConfig(name)
@@ -2821,24 +3020,33 @@ local function saveConfig(name)
     data.MultiCastMoves = multiCastMovesToggle and multiCastMovesToggle.Value or false
     data.AutoQEWin = autoQEWinToggle and autoQEWinToggle.Value or false
     data.Moveset = movesetDropdown and movesetDropdown.Value or "Default"
-    data.CustomColors = {Main = customColors.Main, Accent = customColors.Accent, Background = customColors.Background, Font = customColors.Font}
-    data.CustomColorToggles = {
-        Main = ThemeBox.Flags and ThemeBox.Flags.CustomMainColorToggle and ThemeBox.Flags.CustomMainColorToggle.Value or false,
-        Accent = ThemeBox.Flags and ThemeBox.Flags.CustomAccentColorToggle and ThemeBox.Flags.CustomAccentColorToggle.Value or false,
-        Background = ThemeBox.Flags and ThemeBox.Flags.CustomBackgroundColorToggle and ThemeBox.Flags.CustomBackgroundColorToggle.Value or false,
-        Font = ThemeBox.Flags and ThemeBox.Flags.CustomFontColorToggle and ThemeBox.Flags.CustomFontColorToggle.Value or false
-    }
     data.ShowDisplayNick = showDisplayNickToggle and showDisplayNickToggle.Value or false
     data.ShowRealNick = showRealNickToggle and showRealNickToggle.Value or true
     -- === Auto Block Settings ===
-    data.AutoBlockReleaseTime = AUTO_BLOCK_RELEASE_TIME
-    data.AutoBlockIgnoreTime = AUTO_BLOCK_IGNORE_TIME
-    data.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+    data.StrictDangerousAnimBlock = strictDangerousAnimBlockEnabled
+    data.AutoBlockReleaseTime = _G.AUTO_BLOCK_RELEASE_TIME
+    data.AutoBlockIgnoreTime = _G.AUTO_BLOCK_IGNORE_TIME
+    data.SelectedDangerousAnims = selectedDangerousAnims
+    data.SelectedDangerousAnims = selectedDangerousAnims
+    data.CustomKillSoundEnabled = customKillSoundEnabled
+    data.CustomKillSoundAssetId = customKillSoundAssetId
+    data.CustomKillSoundVolume = customKillSoundVolume
+    data.CustomKillSoundDuration = customKillSoundDuration
+    data.CustomKillSoundTrim = customKillSoundTrim
+    data.CustomKillSoundRadius = customKillSoundRadius
+    data.CustomHitSoundEnabled = customHitSoundEnabled
+    data.CustomHitSoundAssetId = customHitSoundAssetId
+    data.CustomHitSoundVolume = customHitSoundVolume
+    data.CustomHitSoundDuration = customHitSoundDuration
+    data.CustomHitSoundTrim = customHitSoundTrim
     writefile(configFolder.."/"..name..configExt, game:GetService("HttpService"):JSONEncode(data))
     Library:Notify("Config saved: "..name)
     print("[Config] Saving config with AttackSpeed:", attackSpeedSlider and attackSpeedSlider.Value)
     print("[Config] Saving config with PunchStunSpeed:", punchStunSpeedSlider and punchStunSpeedSlider.Value)
 end
+
+-- === Глобальный флаг для защиты от зацикливания Callback-ов при загрузке конфига ===
+local isLoadingConfig = false
 
 local function loadConfig(name)
     local filePath = configFolder.."/"..name..configExt
@@ -2969,26 +3177,8 @@ local function loadConfig(name)
     safeSet(multiCastMovesToggle, data.MultiCastMoves)
     safeSet(autoQEWinToggle, data.AutoQEWin)
     if movesetDropdown then safeSet(movesetDropdown, data.Moveset or "Default") end
-    if data.CustomColors then
-        customColors.Main = data.CustomColors.Main
-        customColors.Accent = data.CustomColors.Accent
-        customColors.Background = data.CustomColors.Background
-        customColors.Font = data.CustomColors.Font
-        Library.Scheme.MainColor = data.CustomColors.Main
-        Library.Scheme.AccentColor = data.CustomColors.Accent
-        Library.Scheme.BackgroundColor = data.CustomColors.Background
-        Library.Scheme.FontColor = data.CustomColors.Font
-        Library:UpdateColorsUsingRegistry()
-    end
-    if data.CustomColorToggles and ThemeBox.Flags then
-        if ThemeBox.Flags.CustomMainColorToggle then ThemeBox.Flags.CustomMainColorToggle:Set(data.CustomColorToggles.Main) end
-        if ThemeBox.Flags.CustomAccentColorToggle then ThemeBox.Flags.CustomAccentColorToggle:Set(data.CustomColorToggles.Accent) end
-        if ThemeBox.Flags.CustomBackgroundColorToggle then ThemeBox.Flags.CustomBackgroundColorToggle:Set(data.CustomColorToggles.Background) end
-        if ThemeBox.Flags.CustomFontColorToggle then ThemeBox.Flags.CustomFontColorToggle:Set(data.CustomColorToggles.Font) end
-    end
     if showDisplayNickToggle then safeSet(showDisplayNickToggle, data.ShowDisplayNick or false) end
     if showRealNickToggle then safeSet(showRealNickToggle, data.ShowRealNick or true) end
-    -- === Auto Block Settings ===
     if data.AutoBlockReleaseTime then
         AUTO_BLOCK_RELEASE_TIME = data.AutoBlockReleaseTime
         if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
@@ -3001,14 +3191,59 @@ local function loadConfig(name)
             safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime)
         end
     end
-    if data.AutoBlockAnimFlags then
-        _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
-        for k, v in pairs(data.AutoBlockAnimFlags) do
-            _G.AutoBlockAnimFlags[k] = v
-            if AutoBlockAnimsBox and AutoBlockAnimsBox.Flags and AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k] then
-                safeSet(AutoBlockAnimsBox.Flags["AutoBlockAnim_"..k], v)
+    if data.StrictDangerousAnimBlock ~= nil then
+        strictDangerousAnimBlockEnabled = data.StrictDangerousAnimBlock
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle then
+            safeSet(AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle, data.StrictDangerousAnimBlock)
+        end
+    end
+    if data.SelectedDangerousAnims and dangerousAnimsDropdown then
+        if #data.SelectedDangerousAnims > 0 then
+            selectedDangerousAnims = data.SelectedDangerousAnims
+            dangerousAnimsDropdown.Values = allDangerousAnims
+            dangerousAnimsDropdown:SetValues(selectedDangerousAnims)
+            if dangerousAnimsDropdown.Callback then
+                dangerousAnimsDropdown.Callback(selectedDangerousAnims)
+            end
+        else
+            selectedDangerousAnims = allDangerousAnims
+            dangerousAnimsDropdown.Values = allDangerousAnims
+            dangerousAnimsDropdown:SetValues(allDangerousAnims)
+            if dangerousAnimsDropdown.Callback then
+                dangerousAnimsDropdown.Callback(allDangerousAnims)
             end
         end
+    elseif dangerousAnimsDropdown then
+        selectedDangerousAnims = allDangerousAnims
+        dangerousAnimsDropdown.Values = allDangerousAnims
+        dangerousAnimsDropdown:SetValues(allDangerousAnims)
+        if dangerousAnimsDropdown.Callback then
+            dangerousAnimsDropdown.Callback(allDangerousAnims)
+        end
+    end
+    if data.CustomKillSoundEnabled ~= nil then customKillSoundEnabled = data.CustomKillSoundEnabled end
+    if data.CustomKillSoundAssetId then customKillSoundAssetId = data.CustomKillSoundAssetId end
+    if data.CustomKillSoundVolume then customKillSoundVolume = data.CustomKillSoundVolume end
+    if data.CustomKillSoundDuration then customKillSoundDuration = data.CustomKillSoundDuration end
+    if data.CustomKillSoundTrim then customKillSoundTrim = data.CustomKillSoundTrim end
+    if data.CustomKillSoundRadius then customKillSoundRadius = data.CustomKillSoundRadius end
+    if data.CustomHitSoundEnabled ~= nil then customHitSoundEnabled = data.CustomHitSoundEnabled end
+    if data.CustomHitSoundAssetId then customHitSoundAssetId = data.CustomHitSoundAssetId end
+    if data.CustomHitSoundVolume then customHitSoundVolume = data.CustomHitSoundVolume end
+    if data.CustomHitSoundDuration then customHitSoundDuration = data.CustomHitSoundDuration end
+    if data.CustomHitSoundTrim then customHitSoundTrim = data.CustomHitSoundTrim end
+    if CustomBox and CustomBox.Flags then
+        if CustomBox.Flags.CustomKillSoundToggle then CustomBox.Flags.CustomKillSoundToggle:Set(customKillSoundEnabled) end
+        if CustomBox.Flags.CustomKillSoundAssetId then CustomBox.Flags.CustomKillSoundAssetId:Set(customKillSoundAssetId) end
+        if CustomBox.Flags.CustomKillSoundVolume then CustomBox.Flags.CustomKillSoundVolume:Set(customKillSoundVolume) end
+        if CustomBox.Flags.CustomKillSoundDuration then CustomBox.Flags.CustomKillSoundDuration:Set(customKillSoundDuration) end
+        if CustomBox.Flags.CustomKillSoundTrim then CustomBox.Flags.CustomKillSoundTrim:Set(customKillSoundTrim) end
+        if CustomBox.Flags.CustomKillSoundRadius then CustomBox.Flags.CustomKillSoundRadius:Set(customKillSoundRadius) end
+        if CustomBox.Flags.CustomHitSoundToggle then CustomBox.Flags.CustomHitSoundToggle:Set(customHitSoundEnabled) end
+        if CustomBox.Flags.CustomHitSoundAssetId then CustomBox.Flags.CustomHitSoundAssetId:Set(customHitSoundAssetId) end
+        if CustomBox.Flags.CustomHitSoundVolume then CustomBox.Flags.CustomHitSoundVolume:Set(customHitSoundVolume) end
+        if CustomBox.Flags.CustomHitSoundDuration then CustomBox.Flags.CustomHitSoundDuration:Set(customHitSoundDuration) end
+        if CustomBox.Flags.CustomHitSoundTrim then CustomBox.Flags.CustomHitSoundTrim:Set(customHitSoundTrim) end
     end
     print("[Config] Loaded config value for AttackSpeed:", data.AttackSpeed)
     print("[Config] Loaded config value for PunchStunSpeed:", data.PunchStunSpeed)
@@ -3018,7 +3253,17 @@ local function loadConfig(name)
         reapplyAllPatches()
     end
 
+    if data.AutoBlockIgnoreTime then
+        _G.AUTO_BLOCK_IGNORE_TIME = data.AutoBlockIgnoreTime
+        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+            if type(safeSet) == "function" then
+                safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime)
+            end
+        end
+    end
+
     Library:Notify("Config loaded: "..name)
+    isLoadingConfig = false
 end
 
 ConfigBox:AddInput("ConfigName", {
@@ -3133,9 +3378,6 @@ end
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 local BlockRemote = Remotes and Remotes:FindFirstChild("Block")
 
-local AUTO_BLOCK_RELEASE_TIME = 0.26 -- Время отпускания блока после атаки (сек)
-local AUTO_BLOCK_IGNORE_TIME = 0.23   -- Время, в течение которого новые атаки игнорируются (сек)
-
 local lastAttackTime = 0
 local ignoreAttackUntil = 0
 
@@ -3151,7 +3393,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
         local now = tick()
         if now > ignoreAttackUntil then
             lastAttackTime = now
-            ignoreAttackUntil = now + AUTO_BLOCK_IGNORE_TIME
+            ignoreAttackUntil = now + _G.AUTO_BLOCK_IGNORE_TIME
         end
     end
 end)
@@ -3180,13 +3422,13 @@ local autoBlockTouchConn = nil
 local autoBlockButtonConns = {}
 local function connectAllMobileBlockHandlers()
     -- Отключаем старые
-    if autoBlockTouchConn then autoBlockTouchConn:Disconnect() autoBlockTouchConn = nil end
-    for _, conn in pairs(autoBlockButtonConns) do conn:Disconnect() end
+    if autoBlockTouchConn then safeDisconnect(autoBlockTouchConn) autoBlockTouchConn = nil end
+    for _, conn in pairs(autoBlockButtonConns) do safeDisconnect(conn) end
     autoBlockButtonConns = {}
     -- Любое касание экрана
     autoBlockTouchConn = UserInputService.TouchStarted:Connect(function()
         lastAttackTime = tick()
-        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+        ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
     end)
     -- Все кнопки в PlayerGui
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -3195,7 +3437,7 @@ local function connectAllMobileBlockHandlers()
             if btn:IsA("TextButton") or btn:IsA("ImageButton") then
                 local conn = btn.MouseButton1Down:Connect(function()
                     lastAttackTime = tick()
-                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                    ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
                 end)
                 table.insert(autoBlockButtonConns, conn)
             end
@@ -3205,7 +3447,7 @@ local function connectAllMobileBlockHandlers()
             if obj:IsA("TextButton") or obj:IsA("ImageButton") then
                 local conn = obj.MouseButton1Down:Connect(function()
                     lastAttackTime = tick()
-                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                    ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
                 end)
                 table.insert(autoBlockButtonConns, conn)
             end
@@ -3216,61 +3458,94 @@ end
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
-    Tooltip = "Automatically blocks if dangerous animation is near you (radius 15)",
+    Tooltip = "Automatically blocks if dangerous animation is near you (radius 15) or by release/ignore time.",
     Callback = function(state)
+        if isLoadingConfig then return end
+        -- === ДОБАВЛЕНО: всегда обновлять dangerousAnims и тайминги из UI ===
+        if state then
+            _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
+            for _, anim in ipairs(allDangerousAnims) do
+                _G.AutoBlockAnimFlags[anim] = table.find(selectedDangerousAnims, anim) ~= nil
+            end
+            -- Обновить тайминги
+            if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags then
+                if AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider then
+                    _G.AUTO_BLOCK_RELEASE_TIME = AutoBlockSettingsBox.Flags.AutoBlockReleaseTimeSlider.Value
+                end
+                if AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
+                    _G.AUTO_BLOCK_IGNORE_TIME = AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider.Value
+                end
+            end
+        end
+        -- === СТАРАЯ ЛОГИКА ===
         autoBlockEnabled = state
-        if autoBlockConn then autoBlockConn:Disconnect() autoBlockConn = nil end
-        if attackingListener then attackingListener:Disconnect() attackingListener = nil end
+        if autoBlockConn then safeDisconnect(autoBlockConn) autoBlockConn = nil end
+        if attackingListener then safeDisconnect(attackingListener) attackingListener = nil end
         -- Отключаем мобильные обработчики при выключении
         if not state then
-            if autoBlockTouchConn then autoBlockTouchConn:Disconnect() autoBlockTouchConn = nil end
-            for _, conn in pairs(autoBlockButtonConns) do conn:Disconnect() end
+            if autoBlockTouchConn then safeDisconnect(autoBlockTouchConn) autoBlockTouchConn = nil end
+            for _, conn in pairs(autoBlockButtonConns) do safeDisconnect(conn) end
             autoBlockButtonConns = {}
         end
         local myData = CharacterDataModule.GetData()
         if state then
-            -- Подключаем мобильные обработчики
             connectAllMobileBlockHandlers()
             attackingListener = CharacterDataModule.ListenTo("Attacking"):Connect(function(val)
                 if val > 0 then
                     lastAttackTime = tick()
-                    ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+                    ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
                 end
             end)
             autoBlockConn = task.spawn(function()
                 while autoBlockEnabled do
                     local now = tick()
-                    local danger = false
-                    local myChar = LocalPlayer.Character
-                    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-                        local myPos = myChar.HumanoidRootPart.Position
-                        for _, player in ipairs(Players:GetPlayers()) do
-                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                                local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
-                                if dist <= autoBlockRadius then
-                                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-                                    if humanoid and humanoid.Animator then
-                                        for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
-                                            local animName = track.Name
-                                            if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" or dangerousAnims[animName] then
-                                                danger = true
-                                                break
+                    local shouldBlock
+                    if strictDangerousAnimBlockEnabled then
+                        -- Строгий режим: реагируем на опасные анимации в радиусе
+                        local danger = false
+                        local myChar = LocalPlayer.Character
+                        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                            local myPos = myChar.HumanoidRootPart.Position
+                            for _, player in ipairs(Players:GetPlayers()) do
+                                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                    local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                    if dist <= autoBlockRadius then
+                                        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                        if humanoid and humanoid.Animator then
+                                            for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                                local animName = track.Name
+                                                if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" or dangerousAnims[animName] then
+                                                    danger = true
+                                                    break
+                                                end
                                             end
                                         end
                                     end
                                 end
+                                if danger then break end
                             end
-                            if danger then break end
                         end
-                    end
-                    local shouldBlock
-                    if danger then
-                        shouldBlock = true
-                        lastAttackTime = 0 -- сбрасываем отпускание блока, если опасность
-                        ignoreAttackUntil = 0
+                        if danger then
+                            shouldBlock = true
+                            lastAttackTime = 0
+                            ignoreAttackUntil = 0
+                        else
+                            if now < lastAttackTime + _G.AUTO_BLOCK_RELEASE_TIME then
+                                shouldBlock = false
+                            elseif now < ignoreAttackUntil then
+                                shouldBlock = true
+                            else
+                                shouldBlock = true
+                            end
+                        end
                     else
-                        if now < lastAttackTime + AUTO_BLOCK_RELEASE_TIME then
-                            shouldBlock = false
+                        -- Обычный режим: только release/ignore time, но с учётом M1-M4 по AnimationId
+                        if now < lastAttackTime + _G.AUTO_BLOCK_RELEASE_TIME then
+                            if myM1M4Playing then
+                                shouldBlock = false
+                            else
+                                shouldBlock = true
+                            end
                         elseif now < ignoreAttackUntil then
                             shouldBlock = true
                         else
@@ -3297,65 +3572,63 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     end
 })
 
--- === Auto Block Settings Tab ===
-local AutoBlockTab = Window:AddTab("Auto Block Settings", "shield")
-local AutoBlockSettingsBox = AutoBlockTab:AddLeftGroupbox("Timing Settings")
-local AutoBlockAnimsBox = AutoBlockTab:AddRightGroupbox("Dangerous Animations")
+local myM1M4Playing = false
+local myAnimator = nil
+local myM1M4Ids = {}
 
--- Тайминги (слайдеры)
-AUTO_BLOCK_RELEASE_TIME = AUTO_BLOCK_RELEASE_TIME or 0.3
-AUTO_BLOCK_IGNORE_TIME = AUTO_BLOCK_IGNORE_TIME or 0.25
-
-AutoBlockSettingsBox:AddSlider("AutoBlockReleaseTimeSlider", {
-    Text = "Release Time (sec)",
-    Min = 0.1,
-    Max = 1.0,
-    Default = AUTO_BLOCK_RELEASE_TIME,
-    Rounding = 2,
-    Tooltip = "How long to release block after attack",
-    Callback = function(val) AUTO_BLOCK_RELEASE_TIME = val end
-})
-AutoBlockSettingsBox:AddSlider("AutoBlockIgnoreTimeSlider", {
-    Text = "Ignore Time (sec)",
-    Min = 0.1,
-    Max = 1.0,
-    Default = AUTO_BLOCK_IGNORE_TIME,
-    Rounding = 2,
-    Tooltip = "How long to ignore new attacks after block release",
-    Callback = function(val) AUTO_BLOCK_IGNORE_TIME = val end
-})
-
--- Список всех опасных анимаций
-local allDangerousAnims = {
-    "M1-1", "M1-2", "M1-3", "M1-4", "M2",
-    "Parry", "Destruct", "Disorder",
-    "RampantArc", "SickleThrow",
-    "FlameBarrage", "FlameBarrageFinisher", "RisingSun",
-    "FlowingDance", "FlowingDanceNew", "ShiningSun", "WaterSurfaceSlash", "WaterWheel",
-    "LoudAct", "MusicalScore", "Performance", "Resounding",
-    "EightFoldLand", "EightFoldWindUp", "FallAsleep", "SixFoldBlocked", "SixFoldEnd",
-    "SixFoldRush", "SixFoldWindUp", "ThunderClapEnd", "ThunderClapStartup"
-}
-
--- Состояния чекбоксов для анимаций
-_G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
-for _, anim in ipairs(allDangerousAnims) do
-    if _G.AutoBlockAnimFlags[anim] == nil then _G.AutoBlockAnimFlags[anim] = true end
-    AutoBlockAnimsBox:AddToggle("AutoBlockAnim_"..anim, {
-        Text = anim,
-        Default = _G.AutoBlockAnimFlags[anim],
-        Callback = function(state) _G.AutoBlockAnimFlags[anim] = state end
-    })
+local function updateM1M4Ids()
+    myM1M4Ids = {}
+    local char = LocalPlayer.Character
+    if not char then return end
+    local moveset = char:GetAttribute("Moveset") or "Default"
+    local movesetModule = ReplicatedStorage.Knit.Modules.Movesets:FindFirstChild(moveset)
+    if not movesetModule then return end
+    local anims = movesetModule:FindFirstChild("Anims")
+    if not anims then return end
+    local m1s = anims:FindFirstChild("M1s")
+    if not m1s then return end
+    for i = 1, 4 do
+        local anim = m1s:FindFirstChild("M1-"..i)
+        if anim and anim:IsA("Animation") then
+            table.insert(myM1M4Ids, anim.AnimationId)
+        end
+    end
 end
 
-local dangerousAnims = setmetatable({}, {
-    __index = function(_, k)
-        return _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[k] or false
+local function setupMyAnimatorListener()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    myAnimator = hum:FindFirstChildOfClass("Animator")
+    if not myAnimator then return end
+    updateM1M4Ids()
+    myM1M4Playing = false
+    myAnimator.AnimationPlayed:Connect(function(track)
+        if track.Animation and table.find(myM1M4Ids, track.Animation.AnimationId) then
+            myM1M4Playing = true
+            track.Stopped:Connect(function()
+                myM1M4Playing = false
+            end)
+        end
+    end)
+    for _, track in ipairs(myAnimator:GetPlayingAnimationTracks()) do
+        if track.Animation and table.find(myM1M4Ids, track.Animation.AnimationId) then
+            myM1M4Playing = true
+            track.Stopped:Connect(function()
+                myM1M4Playing = false
+            end)
+        end
     end
-})
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    setupMyAnimatorListener()
+end)
+setupMyAnimatorListener()
 
 -- === Infinite Posture (новая логика: анти-пробитие блока) ===
-if infinitePostureConn then infinitePostureConn:Disconnect() infinitePostureConn = nil end
+if infinitePostureConn then safeDisconnect(infinitePostureConn) infinitePostureConn = nil end
 infinitePostureConn = game:GetService("RunService").RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
@@ -3401,7 +3674,7 @@ local function setupMobileAttackListener()
     -- Вешаем новый обработчик
     attackBtn._autoBlockConn = attackBtn.MouseButton1Down:Connect(function()
         lastAttackTime = tick()
-        ignoreAttackUntil = tick() + AUTO_BLOCK_IGNORE_TIME
+        ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
     end)
 end
 
@@ -3413,4 +3686,237 @@ if UserInputService.TouchEnabled then
             setupMobileAttackListener()
         end
     end)
+end
+
+-- Хук на RemoteEvent CharacterData.Network для фиксации атаки
+local CharacterDataNetwork = ReplicatedStorage.Knit.Modules.Data.CharacterData:FindFirstChild("Network")
+if CharacterDataNetwork and CharacterDataNetwork:IsA("RemoteEvent") then
+    CharacterDataNetwork.OnClientEvent:Connect(function(...)
+        local args = {...}
+        for i, v in ipairs(args) do
+            if tostring(v) == "Attacking" and tonumber(args[i+1]) and tonumber(args[i+1]) >= 1 then
+                playCustomHitSound()
+            end
+            if (tostring(v) == "Attacking" and args[i+1] == 1)
+                or (tostring(v) == "AttackLoop" and args[i+1] == true)
+                or (tostring(v) == "LastAttack") then
+                lastAttackTime = tick()
+                ignoreAttackUntil = tick() + _G.AUTO_BLOCK_IGNORE_TIME
+            end
+        end
+    end)
+end
+
+local dangerousAttackers = {}
+
+-- Обновлять список опасных игроков каждую секунду
+spawn(function()
+    while true do
+        dangerousAttackers = {}
+        for _, char in ipairs(workspace.Characters:GetChildren()) do
+            local attackedBy = char:FindFirstChild("AttackedBy")
+            if attackedBy and attackedBy.Value == LocalPlayer.Name then
+                table.insert(dangerousAttackers, char)
+            end
+        end
+        wait(1)
+    end
+end)
+
+-- Проверка строгого блока
+local function shouldStrictBlock()
+    if not strictDangerousAnimBlockEnabled then return false end
+    local myChar = LocalPlayer.Character
+    if not myChar then return false end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return false end
+    for _, char in ipairs(dangerousAttackers) do
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root and (root.Position - myRoot.Position).Magnitude <= 10 then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    if dangerousAnims[track.Name] then
+                        return true -- Включить строгий блок
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- === Custom Tab ===
+local CustomTab = Window:AddTab("Custom")
+local CustomBox = CustomTab:AddLeftGroupbox("Custom Features")
+local customKillSoundEnabled = false
+local customKillSoundAssetId = ""
+
+-- Отслеживание смертей других игроков, которых ты бил
+spawn(function()
+    while true do
+        if customKillSoundEnabled and customKillSoundAssetId ~= "" then
+            for _, char in ipairs(workspace.Characters:GetChildren()) do
+                if char ~= LocalPlayer.Character then
+                    local attackedBy = char:FindFirstChild("AttackedBy")
+                    if attackedBy and attackedBy.Value == LocalPlayer.Name then
+                        -- Проверяем, не умер ли игрок (Parent == nil или Humanoid.Health == 0)
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum and hum.Health == 0 and not char:FindFirstChild("_CustomKillSoundPlayed") then
+                            -- Помечаем, чтобы не проигрывать повторно
+                            local flag = Instance.new("BoolValue")
+                            flag.Name = "_CustomKillSoundPlayed"
+                            flag.Parent = char
+                            -- Проигрываем звук
+                            local sound = Instance.new("Sound")
+                            sound.SoundId = "rbxassetid://" .. tostring(customKillSoundAssetId)
+                            sound.Volume = 1
+                            sound.Parent = workspace
+                            sound:Play()
+                            game:GetService("Debris"):AddItem(sound, 5)
+                        end
+                    end
+                end
+            end
+        end
+        wait(0.5)
+    end
+end)
+
+-- === Custom Kill Sound (по радиусу, без AttackedBy) ===
+local customKillSoundEnabled = false
+local customKillSoundAssetId = ""
+local customKillSoundVolume = 1
+local customKillSoundDuration = 3
+local customKillSoundTrim = 0
+local customKillSoundRadius = 50
+
+CustomBox:AddToggle("CustomKillSoundToggle", {
+    Text = "Custom Kill Sound",
+    Default = false,
+    Tooltip = "Play a custom sound when any player dies near you (radius 50)",
+    Callback = function(state)
+        customKillSoundEnabled = state
+    end
+})
+CustomBox:AddInput("CustomKillSoundAssetId", {
+    Text = "Kill Sound AssetId",
+    Default = "",
+    Tooltip = "Roblox AssetId for kill sound (e.g. 1234567890)",
+    Callback = function(val)
+        customKillSoundAssetId = val
+    end
+})
+CustomBox:AddSlider("CustomKillSoundVolume", {
+    Text = "Kill Sound Volume",
+    Min = 0, Max = 2, Default = 1, Rounding = 2,
+    Callback = function(val) customKillSoundVolume = val end
+})
+CustomBox:AddSlider("CustomKillSoundDuration", {
+    Text = "Kill Sound Duration (sec)",
+    Min = 1, Max = 20, Default = 3, Rounding = 0,
+    Callback = function(val) customKillSoundDuration = val end
+})
+CustomBox:AddSlider("CustomKillSoundTrim", {
+    Text = "Kill Sound Trim Start (sec)",
+    Min = 0, Max = 2, Default = 0, Rounding = 1,
+    Callback = function(val) customKillSoundTrim = val end
+})
+CustomBox:AddSlider("CustomKillSoundRadius", {
+    Text = "Kill Sound Radius",
+    Min = 10, Max = 200, Default = 50, Rounding = 0,
+    Callback = function(val) customKillSoundRadius = val end
+})
+
+local function playCustomKillSound()
+    if not customKillSoundEnabled or not customKillSoundAssetId or customKillSoundAssetId == "" then return end
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://"..tostring(customKillSoundAssetId)
+    sound.Volume = customKillSoundVolume or 1
+    sound.TimePosition = customKillSoundTrim or 0
+    sound.Parent = workspace
+    sound:Play()
+    task.delay(customKillSoundDuration or 3, function()
+        if sound then
+            sound:Stop()
+            sound:Destroy()
+        end
+    end)
+end
+
+-- Подписываемся на смерть для всех игроков, кроме LocalPlayer
+local function hookKillSoundForChar(char)
+    if not char or char == LocalPlayer.Character then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and not char:FindFirstChild("_CustomKillSoundHooked") then
+        local flag = Instance.new("BoolValue")
+        flag.Name = "_CustomKillSoundHooked"
+        flag.Parent = char
+        hum.Died:Connect(function()
+            local myChar = LocalPlayer.Character
+            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            local theirRoot = char:FindFirstChild("HumanoidRootPart")
+            if myRoot and theirRoot then
+                local dist = (myRoot.Position - theirRoot.Position).Magnitude
+                if dist <= (customKillSoundRadius or 50) then
+                    playCustomKillSound()
+                end
+            end
+        end)
+    end
+end
+
+for _,plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        if plr.Character then hookKillSoundForChar(plr.Character) end
+        plr.CharacterAdded:Connect(hookKillSoundForChar)
+    end
+end
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(hookKillSoundForChar)
+    end
+end)
+
+for _,plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        local function hookSwing1Sound(char)
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.ChildAdded:Connect(function(obj)
+                    if obj:IsA("Sound") and obj.Name == "Swing1" then
+                        local myChar = LocalPlayer.Character
+                        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                        if myRoot and (myRoot.Position - hrp.Position).Magnitude <= 20 then
+                            if customHitSoundEnabled and customHitSoundAssetId ~= "" then
+                                local sound = Instance.new("Sound")
+                                sound.SoundId = "rbxassetid://"..tostring(customHitSoundAssetId)
+                                sound.Volume = customHitSoundVolume or 1
+                                sound.TimePosition = customHitSoundTrim or 0
+                                sound.Parent = hrp
+                                sound:Play()
+                                task.delay(customHitSoundDuration or 1.5, function()
+                                    if sound then pcall(function() sound:Destroy() end) end
+                                end)
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+        if plr.Character then hookSwing1Sound(plr.Character) end
+        plr.CharacterAdded:Connect(hookSwing1Sound)
+    end
+end
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(hookSwing1Sound)
+    end
+end)
+
+local function safeDisconnect(conn)
+    if typeof(conn) == 'RBXScriptConnection' then
+        conn:Disconnect()
+    end
 end
