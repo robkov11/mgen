@@ -185,7 +185,7 @@ AutoBlockSettingsBox:AddSlider("AutoBlockIgnoreTimeSlider", {
 
 strictDangerousAnimBlockToggle = AutoBlockSettingsBox:AddToggle("StrictDangerousAnimBlockToggle", {
     Text = "Strict Dangerous Anim Block",
-    Default = true,
+    Default = false,
     Tooltip = "If enabled, auto-block will always block when dangerous animations (M1-M4/skills) are near you (uses radius). If disabled, auto-block ignores them and works only by your input/release time.",
     Callback = function(state)
         if isLoadingConfig then return end
@@ -3458,7 +3458,7 @@ end
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
-    Tooltip = "Automatically blocks if dangerous animation is near you (radius 15) or by release/ignore time.",
+    Tooltip = "REQUIRES NO SLOW AND STRICT DANGEROUS ANIMS BLOCK",
     Callback = function(state)
         if isLoadingConfig then return end
         -- === ДОБАВЛЕНО: всегда обновлять dangerousAnims и тайминги из UI ===
