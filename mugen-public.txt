@@ -209,7 +209,7 @@ local allDangerousAnims = {
 
 local selectedDangerousAnims = allDangerousAnims
 local dangerousAnimsDropdown = AutoBlockAnimsBox:AddDropdown("DangerousAnimsDropdown", {
-    Text = "Опасные анимации (выбери любые)",
+    Text = "dangerous anims",
     Values = allDangerousAnims,
     Multi = true,
     Default = allDangerousAnims,
