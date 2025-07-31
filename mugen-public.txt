@@ -183,15 +183,15 @@ AutoBlockSettingsBox:AddSlider("AutoBlockIgnoreTimeSlider", {
     Callback = function(val) _G.AUTO_BLOCK_IGNORE_TIME = val end
 })
 
-strictDangerousAnimBlockToggle = AutoBlockSettingsBox:AddToggle("StrictDangerousAnimBlockToggle", {
-    Text = "Strict Dangerous Anim Block",
-    Default = false,
-    Tooltip = "If enabled, auto-block will always block when dangerous animations (M1-M4/skills) are near you (uses radius). If disabled, auto-block ignores them and works only by your input/release time.",
-    Callback = function(state)
-        if isLoadingConfig then return end
-        strictDangerousAnimBlockEnabled = state
-    end
-})
+-- Убираем тоггл Strict Dangerous Anim Block - теперь он всегда включен по умолчанию
+strictDangerousAnimBlockEnabled = true -- Всегда включен для максимальной защиты
+
+-- Функция для определения, является ли анимация скиллом (не M1-M4)
+local function isSkillAnimation(animName)
+    if not animName then return false end
+    -- M1-M4 это обычные атаки, все остальное - скиллы
+    return not (animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2")
+end
 
 -- Список всех опасных анимаций
 local allDangerousAnims = {
@@ -1231,9 +1231,7 @@ local function reapplyAllPatches()
         if AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider then
             safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider.Value)
         end
-        if AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle then
-            safeSet(AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle, AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle.Value)
-        end
+
     end
     if dangerousAnimsDropdown and selectedDangerousAnims then
         dangerousAnimsDropdown.Values = allDangerousAnims
@@ -3023,7 +3021,7 @@ local function saveConfig(name)
     data.ShowDisplayNick = showDisplayNickToggle and showDisplayNickToggle.Value or false
     data.ShowRealNick = showRealNickToggle and showRealNickToggle.Value or true
     -- === Auto Block Settings ===
-    data.StrictDangerousAnimBlock = strictDangerousAnimBlockEnabled
+    -- data.StrictDangerousAnimBlock = strictDangerousAnimBlockEnabled -- Теперь всегда true
     data.AutoBlockReleaseTime = _G.AUTO_BLOCK_RELEASE_TIME
     data.AutoBlockIgnoreTime = _G.AUTO_BLOCK_IGNORE_TIME
     data.SelectedDangerousAnims = selectedDangerousAnims
@@ -3191,12 +3189,10 @@ local function loadConfig(name)
             safeSet(AutoBlockSettingsBox.Flags.AutoBlockIgnoreTimeSlider, data.AutoBlockIgnoreTime)
         end
     end
-    if data.StrictDangerousAnimBlock ~= nil then
-        strictDangerousAnimBlockEnabled = data.StrictDangerousAnimBlock
-        if AutoBlockSettingsBox and AutoBlockSettingsBox.Flags and AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle then
-            safeSet(AutoBlockSettingsBox.Flags.StrictDangerousAnimBlockToggle, data.StrictDangerousAnimBlock)
-        end
-    end
+    -- StrictDangerousAnimBlock теперь всегда включен по умолчанию
+    -- if data.StrictDangerousAnimBlock ~= nil then
+    --     strictDangerousAnimBlockEnabled = data.StrictDangerousAnimBlock
+    -- end
     if data.SelectedDangerousAnims and dangerousAnimsDropdown then
         if #data.SelectedDangerousAnims > 0 then
             selectedDangerousAnims = data.SelectedDangerousAnims
@@ -3458,10 +3454,10 @@ end
 autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
     Text = "Auto Block [REQUIRES NO SLOW]",
     Default = false,
-    Tooltip = "REQUIRES NO SLOW AND STRICT DANGEROUS ANIMS BLOCK",
+    Tooltip = "REQUIRES NO SLOW. Auto-block that constantly checks other players for dangerous animations. Skills (non M1-M4) force constant blocking, M1-M4 use release time. FORCES BLOCK even when stunned/hit. Has backup detection in 80 stud radius.",
     Callback = function(state)
         if isLoadingConfig then return end
-        -- === ДОБАВЛЕНО: всегда обновлять dangerousAnims и тайминги из UI ===
+        -- === ДОБАВЛЕНО: обновляем dangerousAnims и тайминги при включении Auto Block ===
         if state then
             _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
             for _, anim in ipairs(allDangerousAnims) do
@@ -3500,22 +3496,58 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                 while autoBlockEnabled do
                     local now = tick()
                     local shouldBlock
-                    if strictDangerousAnimBlockEnabled then
-                        -- Строгий режим: реагируем на опасные анимации в радиусе
-                        local danger = false
-                        local myChar = LocalPlayer.Character
-                        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-                            local myPos = myChar.HumanoidRootPart.Position
+                    
+                    -- Улучшенный строгий режим: реагируем на опасные анимации в радиусе
+                    local danger = false
+                    local skillDanger = false -- Отдельный флаг для скиллов
+                    local myChar = LocalPlayer.Character
+                    
+                    if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                        local myPos = myChar.HumanoidRootPart.Position
+                        
+                        -- ОСНОВНАЯ ПРОВЕРКА: Проверяем всех игроков в радиусе autoBlockRadius
+                        for _, player in ipairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                local checkRadius = autoBlockRadius
+                                if dist <= checkRadius then
+                                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                    if humanoid and humanoid.Animator then
+                                        for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                            local animName = track.Name
+                                            -- Проверяем все выбранные опасные анимации
+                                            if _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[animName] then
+                                                danger = true
+                                                -- Если это скилл, устанавливаем отдельный флаг
+                                                if isSkillAnimation(animName) then
+                                                    skillDanger = true
+                                                end
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if danger then break end
+                        end
+                        
+                        -- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если основная проверка не сработала, проверяем в радиусе 80
+                        if not danger then
                             for _, player in ipairs(Players:GetPlayers()) do
                                 if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                                     local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
-                                    if dist <= autoBlockRadius then
+                                    if dist <= 80 then -- Дополнительный радиус 80
                                         local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
                                         if humanoid and humanoid.Animator then
                                             for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
                                                 local animName = track.Name
-                                                if animName == "M1-1" or animName == "M1-2" or animName == "M1-3" or animName == "M1-4" or animName == "M2" or dangerousAnims[animName] then
+                                                -- Проверяем все опасные анимации (не только выбранные)
+                                                if table.find(allDangerousAnims, animName) then
                                                     danger = true
+                                                    -- Если это скилл, устанавливаем отдельный флаг
+                                                    if isSkillAnimation(animName) then
+                                                        skillDanger = true
+                                                    end
                                                     break
                                                 end
                                             end
@@ -3525,11 +3557,19 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                                 if danger then break end
                             end
                         end
-                        if danger then
+                    end
+                    
+                    -- Auto Block реагирует только на других игроков
+                    
+                    -- Логика блокировки
+                    if danger then
+                        if skillDanger then
+                            -- Если обнаружен скилл - блокируем постоянно, игнорируя release time
                             shouldBlock = true
                             lastAttackTime = 0
                             ignoreAttackUntil = 0
                         else
+                            -- Если это обычная атака (M1-M4) - используем стандартную логику
                             if now < lastAttackTime + _G.AUTO_BLOCK_RELEASE_TIME then
                                 shouldBlock = false
                             elseif now < ignoreAttackUntil then
@@ -3539,35 +3579,25 @@ autoBlockToggle = MainLeft:AddToggle("AutoBlockToggle", {
                             end
                         end
                     else
-                        -- Обычный режим: только release/ignore time, но с учётом M1-M4 по AnimationId
+                        -- Если нет опасности - используем стандартную логику
                         if now < lastAttackTime + _G.AUTO_BLOCK_RELEASE_TIME then
-                            if myM1M4Playing then
-                                shouldBlock = false
-                            else
-                                shouldBlock = true
-                            end
+                            shouldBlock = false
                         elseif now < ignoreAttackUntil then
                             shouldBlock = true
                         else
                             shouldBlock = true
                         end
                     end
-                    if myData then
-                        myData.Blocking = shouldBlock
-                    end
-                    if BlockRemote then
-                        BlockRemote:FireServer(shouldBlock)
-                    end
-                    task.wait(0.05)
+                    
+                    -- Применяем блок (используем принудительную блокировку)
+                    forceBlock(shouldBlock)
+                    
+                    -- Уменьшаем задержку для более частой проверки
+                    task.wait(0.005) -- 50 FPS вместо 20 FPS
                 end
             end)
         else
-            if myData then
-                myData.Blocking = false
-            end
-            if BlockRemote then
-                BlockRemote:FireServer(false)
-            end
+            forceBlock(false)
         end
     end
 })
@@ -3627,6 +3657,157 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 setupMyAnimatorListener()
 
+-- === Функция принудительной блокировки (обходит проверки состояния) ===
+local function forceBlock(shouldBlock)
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    local data = require(game:GetService("ReplicatedStorage").Knit.Modules.Data.CharacterData).GetData(char)
+    if not data then return end
+    
+    if shouldBlock then
+        -- Принудительно устанавливаем блок, игнорируя все проверки состояния
+        data.Blocking = true
+        
+        -- Снимаем все состояния, которые могут мешать блоку
+        if data.Stun and data.Stun > 0 then
+            data.Stun = 0
+        end
+        if data.HardStun and data.HardStun > 0 then
+            data.HardStun = 0
+        end
+        if data.HitStun and data.HitStun > 0 then
+            data.HitStun = 0
+        end
+        
+        -- Снимаем атрибуты, которые могут мешать блоку
+        char:SetAttribute("Stun", 0)
+        char:SetAttribute("HardStun", 0)
+        char:SetAttribute("HitStun", 0)
+        char:SetAttribute("BlockBreak", 0)
+        
+        -- Останавливаем анимации, которые могут мешать блоку
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Animator then
+            for _, track in ipairs(hum.Animator:GetPlayingAnimationTracks()) do
+                if track.Name:find("BlockBreak") or track.Name:find("BlockFlinch") or 
+                   track.Name:find("Stun") or track.Name:find("HitStun") then
+                    track:Stop(0)
+                end
+            end
+        end
+        
+        -- Отправляем команду блока на сервер
+        if BlockRemote then
+            BlockRemote:FireServer(true)
+        end
+    else
+        -- Обычное снятие блока
+        data.Blocking = false
+        if BlockRemote then
+            BlockRemote:FireServer(false)
+        end
+    end
+end
+
+-- === Отслеживание изменений состояния персонажа ===
+local function setupCharacterStateListener()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
+    -- Отслеживаем изменения атрибутов, которые могут снять блок
+    local function onAttributeChanged(attributeName)
+        if autoBlockEnabled and attributeName == "Stun" or attributeName == "HardStun" or attributeName == "HitStun" then
+            local value = char:GetAttribute(attributeName)
+            if value and value > 0 then
+                -- Если появилось состояние, которое может снять блок - проверяем, нужно ли восстановить блок
+                task.wait(0.01) -- Небольшая задержка
+                local data = require(game:GetService("ReplicatedStorage").Knit.Modules.Data.CharacterData).GetData(char)
+                if data and not data.Blocking then
+                    -- Проверяем, есть ли опасность вокруг
+                    local danger = false
+                    local myPos = char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Position
+                    
+                    if myPos then
+                        -- ОСНОВНАЯ ПРОВЕРКА: Проверяем всех игроков в радиусе autoBlockRadius
+                        for _, player in ipairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                if dist <= autoBlockRadius then
+                                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                    if humanoid and humanoid.Animator then
+                                        for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                            local animName = track.Name
+                                            if _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[animName] then
+                                                danger = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            if danger then break end
+                        end
+                        
+                        -- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если основная проверка не сработала, проверяем в радиусе 80
+                        if not danger then
+                            for _, player in ipairs(Players:GetPlayers()) do
+                                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                                    local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                                    if dist <= 80 then -- Дополнительный радиус 80
+                                        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                        if humanoid and humanoid.Animator then
+                                            for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                                local animName = track.Name
+                                                -- Проверяем все опасные анимации (не только выбранные)
+                                                if table.find(allDangerousAnims, animName) then
+                                                    danger = true
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                if danger then break end
+                            end
+                        end
+                    end
+                    
+                    -- Если есть опасность - восстанавливаем блок
+                    if danger then
+                        forceBlock(true)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Подписываемся на изменения атрибутов
+    char:GetAttributeChangedSignal("Stun"):Connect(function()
+        onAttributeChanged("Stun")
+    end)
+    char:GetAttributeChangedSignal("HardStun"):Connect(function()
+        onAttributeChanged("HardStun")
+    end)
+    char:GetAttributeChangedSignal("HitStun"):Connect(function()
+        onAttributeChanged("HitStun")
+    end)
+end
+
+-- Подписываемся на изменения персонажа
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1) -- Ждем загрузки персонажа
+    setupCharacterStateListener()
+end)
+
+-- Подписываемся на текущий персонаж
+if LocalPlayer.Character then
+    task.spawn(function()
+        task.wait(1)
+        setupCharacterStateListener()
+    end)
+end
+
 -- === Infinite Posture (новая логика: анти-пробитие блока) ===
 if infinitePostureConn then safeDisconnect(infinitePostureConn) infinitePostureConn = nil end
 infinitePostureConn = game:GetService("RunService").RenderStepped:Connect(function()
@@ -3651,6 +3832,70 @@ infinitePostureConn = game:GetService("RunService").RenderStepped:Connect(functi
                 if track.Name:find("BlockBreak") or track.Name:find("BlockFlinch") then
                     track:Stop(0)
                 end
+            end
+        end
+        
+        -- 4. Дополнительная защита: если Auto Block включен, но блок был снят из-за состояния - восстанавливаем
+        if autoBlockEnabled and not data.Blocking then
+            -- Проверяем, есть ли опасность вокруг
+            local danger = false
+            local skillDanger = false
+            local myPos = char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Position
+            
+            if myPos then
+                -- ОСНОВНАЯ ПРОВЕРКА: Проверяем всех игроков в радиусе autoBlockRadius
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                        if dist <= autoBlockRadius then
+                            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                            if humanoid and humanoid.Animator then
+                                for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                    local animName = track.Name
+                                    if _G.AutoBlockAnimFlags and _G.AutoBlockAnimFlags[animName] then
+                                        danger = true
+                                        if isSkillAnimation(animName) then
+                                            skillDanger = true
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if danger then break end
+                end
+                
+                -- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если основная проверка не сработала, проверяем в радиусе 80
+                if not danger then
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+                            if dist <= 80 then -- Дополнительный радиус 80
+                                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                                if humanoid and humanoid.Animator then
+                                    for _, track in ipairs(humanoid.Animator:GetPlayingAnimationTracks()) do
+                                        local animName = track.Name
+                                        -- Проверяем все опасные анимации (не только выбранные)
+                                        if table.find(allDangerousAnims, animName) then
+                                            danger = true
+                                            if isSkillAnimation(animName) then
+                                                skillDanger = true
+                                            end
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if danger then break end
+                    end
+                end
+            end
+            
+            -- Если есть опасность, но блок снят - восстанавливаем
+            if danger then
+                forceBlock(true)
             end
         end
     end
@@ -3723,9 +3968,9 @@ spawn(function()
     end
 end)
 
--- Проверка строгого блока
+-- Проверка строгого блока (теперь всегда включена)
 local function shouldStrictBlock()
-    if not strictDangerousAnimBlockEnabled then return false end
+    -- if not strictDangerousAnimBlockEnabled then return false end -- Теперь всегда true
     local myChar = LocalPlayer.Character
     if not myChar then return false end
     local myRoot = myChar:FindFirstChild("HumanoidRootPart")
