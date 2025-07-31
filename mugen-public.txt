@@ -31,7 +31,7 @@ local originalRaycastCast = RaycastModule.Cast
 -- Create window
 local Window = Library:CreateWindow({
     Title = "Invis Hub",
-    Footer = "by rivv. │ Mugen",
+    Footer = "by kovlost. │ Mugen",
     Center = true,
     AutoShow = true,
     Font = Enum.Font.Gotham,
