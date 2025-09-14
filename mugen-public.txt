@@ -19,7 +19,12 @@ local RaycastModule = require(ReplicatedStorage.Knit.Modules.Raycast)
 _G.AutoBlockAnimFlags = _G.AutoBlockAnimFlags or {}
 
 -- Патч CanAttack (No Stun/No Slow)
-MovesetHandler.CanAttack = function(...)
+MovesetHandler.CanAttack = function(char, ...)
+    -- Если включен авто парри и он активен, блокируем атаки
+    if autoParryEnabled and autoParryActive and char == LocalPlayer.Character then
+        return false
+    end
+    -- Иначе используем оригинальную логику (всегда true для No Stun)
     return true
 end
 
@@ -31,7 +36,7 @@ local originalRaycastCast = RaycastModule.Cast
 -- Create window
 local Window = Library:CreateWindow({
     Title = "Invis Hub",
-    Footer = "by kovlost. │ Mugen v1.45",
+    Footer = "by kovlost. │ Mugen v1.5",
     Center = true,
     AutoShow = true,
     Font = Enum.Font.Gotham,
@@ -204,7 +209,13 @@ local allDangerousAnims = {
     "FlowingDance", "FlowingDanceNew", "ShiningSun", "WaterSurfaceSlash", "WaterWheel",
     "LoudAct", "MusicalScore", "Performance", "Resounding",
     "EightFoldLand", "EightFoldWindUp", "FallAsleep", "SixFoldBlocked",
-    "SixFoldRush", "SixFoldWindUp", "ThunderClapEnd", "ThunderClapStartup"
+    "SixFoldRush", "SixFoldWindUp", "ThunderClapEnd", "ThunderClapStartup",
+    -- Tokito (скрин)
+    "AwakenCam", "MistBreaker", "Remembrance", "ScatteredMist1", "ScatteredMist2",
+    -- Inosuke (скрин)
+    "AwakenCam", "BeastRush", "Instinct",
+    -- Nezuko (скрин)
+    "BloodEruption", "AwakenCam", "BloodLust", "BloodStomp", "BurningKicks", "FieryStrikes"
 }
 
 local selectedDangerousAnims = allDangerousAnims
@@ -4251,3 +4262,420 @@ local function safeDisconnect(conn)
         conn:Disconnect()
     end
 end
+
+
+-- === Auto Parry ===
+local autoParryEnabled = false
+local autoParryRadius = 30
+local autoParryConn = nil
+local lastAutoParry = 0
+local autoParryCooldown = 0.5
+
+-- === Always Selse ===
+local alwaysSelseEnabled = false
+local selseConn = nil
+local selseEffects = {}
+
+-- Функция для создания настоящего эффекта selse (скопировано из GlobalMoveset)
+local function createSelseEffect()
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local TweenService = game:GetService("TweenService")
+    local Debris = game:GetService("Debris")
+    
+    -- Создаем ColorCorrectionEffect
+    local colorCorrection = Instance.new("ColorCorrectionEffect")
+    colorCorrection.Name = "Sense"
+    colorCorrection.Parent = game.Lighting
+    
+    -- Создаем Atmosphere
+    local atmosphere = Instance.new("Atmosphere")
+    atmosphere.Name = "SenseAtmosphere"
+    atmosphere.Parent = game.Lighting
+    
+    -- Создаем SenseHighlight (клонируем из Assets)
+    local senseHighlight = ReplicatedStorage.Assets.SenseHighlight:Clone()
+    senseHighlight.Parent = workspace.Characters
+    
+    -- Создаем Highlight для персонажа
+    local highlight = Instance.new("Highlight")
+    highlight.FillTransparency = 1
+    highlight.OutlineTransparency = 1
+    highlight.FillColor = Color3.fromRGB(255, 255, 255)
+    highlight.Parent = LocalPlayer.Character
+    
+    -- Создаем звук
+    local senseSound = ReplicatedStorage.Assets.Sounds.Sense:Clone()
+    senseSound.Parent = workspace.CurrentCamera
+    senseSound:Play()
+    
+    -- Анимации эффектов
+    TweenService:Create(senseHighlight, TweenInfo.new(0.356, Enum.EasingStyle.Sine), {
+        FillTransparency = 0,
+        OutlineTransparency = 0.25
+    }):Play()
+    
+    TweenService:Create(colorCorrection, TweenInfo.new(0.456, Enum.EasingStyle.Sine), {
+        TintColor = Color3.fromRGB(98, 105, 168),
+        Contrast = 0.1,
+        Saturation = 0.4
+    }):Play()
+    
+    TweenService:Create(atmosphere, TweenInfo.new(0.456, Enum.EasingStyle.Sine), {
+        Density = 0.297
+    }):Play()
+    
+    TweenService:Create(highlight, TweenInfo.new(0.356, Enum.EasingStyle.Sine), {
+        FillTransparency = 0,
+        OutlineTransparency = 0.25
+    }):Play()
+    
+    -- Промежуточная анимация
+    task.delay(0.456, function()
+        TweenService:Create(senseHighlight, TweenInfo.new(0.31, Enum.EasingStyle.Sine), {
+            FillTransparency = 0.35
+        }):Play()
+        TweenService:Create(highlight, TweenInfo.new(0.31, Enum.EasingStyle.Sine), {
+            FillTransparency = 0.35
+        }):Play()
+    end)
+    
+    -- Убираем финальную анимацию исчезновения - эффект длится вечно
+    -- task.delay(5.4, function()
+    --     TweenService:Create(senseHighlight, TweenInfo.new(1.6, Enum.EasingStyle.Sine), {
+    --         FillTransparency = 1,
+    --         OutlineTransparency = 1
+    --     }):Play()
+    --     TweenService:Create(colorCorrection, TweenInfo.new(1.6, Enum.EasingStyle.Sine), {
+    --         TintColor = Color3.fromRGB(255, 255, 255),
+    --         Contrast = 0,
+    --         Saturation = 0
+    --     }):Play()
+    --     TweenService:Create(atmosphere, TweenInfo.new(0.456, Enum.EasingStyle.Sine), {
+    --         Density = 0.117
+    --     }):Play()
+    --     TweenService:Create(highlight, TweenInfo.new(1.6, Enum.EasingStyle.Sine), {
+    --         FillTransparency = 1,
+    --         OutlineTransparency = 1
+    --     }):Play()
+    -- end)
+    
+    -- Эффект длится вечно (не удаляем автоматически)
+    -- Debris:AddItem(highlight, 7)
+    -- Debris:AddItem(senseHighlight, 7)
+    -- Debris:AddItem(atmosphere, 7)
+    -- Debris:AddItem(colorCorrection, 7)
+    -- Debris:AddItem(senseSound, 7)
+    
+    return {
+        colorCorrection = colorCorrection,
+        atmosphere = atmosphere,
+        senseHighlight = senseHighlight,
+        highlight = highlight,
+        senseSound = senseSound
+    }
+end
+
+-- Функция для удаления эффекта selse
+local function removeSelseEffect(effects)
+    if effects then
+        if effects.colorCorrection then effects.colorCorrection:Destroy() end
+        if effects.atmosphere then effects.atmosphere:Destroy() end
+        if effects.senseHighlight then effects.senseHighlight:Destroy() end
+        if effects.highlight then effects.highlight:Destroy() end
+        if effects.senseSound then effects.senseSound:Destroy() end
+    end
+end
+
+-- === Auto Parry Settings ===
+local autoParryDirection = "Back" -- Back, Left, Right, Front, Behind
+local autoParryDirections = {"Back", "Left", "Right", "Front", "Behind"}
+
+MainLeft:AddDropdown("AutoParryDirectionDropdown", {
+    Text = "Auto Parry Direction",
+    Values = autoParryDirections,
+    Default = "Back",
+    Tooltip = "dash direction",
+    Callback = function(val)
+        autoParryDirection = val
+    end
+})
+
+local function getDashVector(myRoot, enemyRoot, direction)
+    if direction == "Back" then
+        return -myRoot.CFrame.LookVector
+    elseif direction == "Left" then
+        return -myRoot.CFrame.RightVector
+    elseif direction == "Right" then
+        return myRoot.CFrame.RightVector
+    elseif direction == "Front" then
+        return myRoot.CFrame.LookVector
+    elseif direction == "Behind" and enemyRoot then
+        -- Dash за спину врага: вычисляем точку за спиной врага
+        local behindPos = enemyRoot.Position - enemyRoot.CFrame.LookVector * 6
+        local toBehind = (behindPos - myRoot.Position)
+        return toBehind.Unit
+    else
+        return -myRoot.CFrame.LookVector
+    end
+end
+
+local dashBaseSpeed = 110
+local dashSpeedMultiplier = 1.7 -- только быстрее, не дальше
+local dashDuration = 0.12 -- короче по времени
+local dashAnimCount = 20 -- для behind
+
+MainLeft:AddToggle("AlwaysSelseToggle", {
+    Text = "Always Selse (highlight enemies)",
+    Default = false,
+    Tooltip = "Постоянно повторяет настоящий эффект selse для подсветки врагов.",
+    Callback = function(state)
+        alwaysSelseEnabled = state
+        if selseConn then safeDisconnect(selseConn) selseConn = nil end
+        if state then
+            -- Создаем первый эффект сразу
+            selseEffects.current = createSelseEffect()
+            
+            -- Повторяем эффект каждые 6 секунд (чуть меньше чем длительность эффекта)
+            selseConn = game:GetService("RunService").Heartbeat:Connect(function()
+                if not alwaysSelseEnabled then return end
+                
+                -- Проверяем, нужно ли создать новый эффект
+                local currentEffects = selseEffects.current
+                if not currentEffects or not currentEffects.colorCorrection or not currentEffects.colorCorrection.Parent then
+                    -- Удаляем старые эффекты если есть
+                    if currentEffects then
+                        removeSelseEffect(currentEffects)
+                    end
+                    -- Создаем новый эффект
+                    selseEffects.current = createSelseEffect()
+                end
+            end)
+        else
+            -- Отключаем все эффекты при выключении
+            if selseEffects.current then
+                removeSelseEffect(selseEffects.current)
+                selseEffects.current = nil
+            end
+        end
+    end
+})
+
+if autoParryConn then safeDisconnect(autoParryConn) autoParryConn = nil end
+MainLeft:AddToggle("AutoParryToggle", {
+    Text = "Auto Parry (dash on danger)",
+    Default = false,
+    Tooltip = "auto dash when dangerous skills",
+    Callback = function(state)
+        autoParryEnabled = state
+        if autoParryConn then safeDisconnect(autoParryConn) autoParryConn = nil end
+        if state then
+            autoParryConn = game:GetService("RunService").Heartbeat:Connect(function()
+                local Players = game:GetService("Players")
+                local LocalPlayer = Players.LocalPlayer
+                if not LocalPlayer or not LocalPlayer.Character then return end
+                local char = LocalPlayer.Character
+                local myRoot = char:FindFirstChild("HumanoidRootPart")
+                if not myRoot then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not hum then return end
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if not animator then return end
+                if tick() - lastAutoParry < autoParryCooldown then return end
+                
+                local autoParryActive = false
+                local autoParryStartTime = 0
+                if autoParryActive and tick() - autoParryStartTime > 0.3 then
+                    autoParryActive = false
+                    -- Восстанавливаем блок если авто блок был включен
+                    if autoBlockEnabled then
+                        local myData = CharacterDataModule.GetData()
+                        if myData then
+                            myData.Blocking = true
+                            if BlockRemote then
+                                BlockRemote:FireServer(true)
+                            end
+                        end
+                    end
+                end
+                
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                        local enemyRoot = plr.Character.HumanoidRootPart
+                        if (enemyRoot.Position - myRoot.Position).Magnitude <= autoParryRadius then
+                            local enemyHum = plr.Character:FindFirstChildOfClass("Humanoid")
+                            if enemyHum and enemyHum.Animator then
+                                for _, track in ipairs(enemyHum.Animator:GetPlayingAnimationTracks()) do
+                                    if table.find(allDangerousAnims, track.Name) then
+                                        local animKey = "AutoParry_"..plr.Name.."_"..track.Name
+                                        if not enemyRoot:GetAttribute(animKey) then
+                                            enemyRoot:SetAttribute(animKey, true)
+                                            lastAutoParry = tick()
+                                            
+                                            -- === АВТО ПАРРИ: Активируем и снимаем блок ===
+                                            autoParryActive = true
+                                            autoParryStartTime = tick()
+                                            
+                                            -- Снимаем блок если он был включен
+                                            local myData = CharacterDataModule.GetData()
+                                            if myData and myData.Blocking then
+                                                myData.Blocking = false
+                                                if BlockRemote then
+                                                    BlockRemote:FireServer(false)
+                                                end
+                                            end
+                                            
+                                            local dashVec = getDashVector(myRoot, enemyRoot, autoParryDirection)
+                                            local hrp = char:FindFirstChild("HumanoidRootPart")
+                                            if hrp then
+                                                local oldBv = hrp:FindFirstChild("DashVelocity")
+                                                if oldBv then oldBv:Destroy() end
+                                                local dashAnimFolder = game:GetService("ReplicatedStorage").Knit.Modules.Movesets.Default.Anims.DashAnims
+                                                local dashAnim = nil
+                                                if autoParryDirection == "Back" then
+                                                    dashAnim = dashAnimFolder:FindFirstChild("BackDash")
+                                                elseif autoParryDirection == "Front" then
+                                                    dashAnim = dashAnimFolder:FindFirstChild("FrontDash")
+                                                elseif autoParryDirection == "Left" then
+                                                    dashAnim = dashAnimFolder:FindFirstChild("LeftDash")
+                                                elseif autoParryDirection == "Right" then
+                                                    dashAnim = dashAnimFolder:FindFirstChild("RightDash")
+                                                elseif autoParryDirection == "Behind" then
+                                                    dashAnim = dashAnimFolder:FindFirstChild("RightDash")
+                                                end
+                                                if dashAnim then
+                                                    local dashTrack = animator:LoadAnimation(dashAnim)
+                                                    dashTrack:Play()
+                                                    dashTrack:AdjustSpeed(2.2)
+                                                end
+                                                local bv = Instance.new("BodyVelocity")
+                                                bv.Parent = hrp
+                                                bv.Name = "DashVelocity"
+                                                bv.MaxForce = Vector3.new(100000, 0, 100000)
+                                                if autoParryDirection == "Behind" then
+                                                    local right = myRoot.CFrame.RightVector
+                                                    local forward = myRoot.CFrame.LookVector
+                                                    local left = -myRoot.CFrame.RightVector
+                                                    -- Правильно вычисляем позицию за спиной врага
+                                                    local enemyLookVector = enemyRoot.CFrame.LookVector
+                                                    local behindPos = enemyRoot.Position - enemyLookVector * 8
+                                                    local toBehind = (behindPos - myRoot.Position)
+                                                    local dashSpeed = dashBaseSpeed * dashSpeedMultiplier
+                                                    local duration = dashDuration
+                                                    local steps = dashAnimCount
+                                                    local points = {}
+                                                    for i = 1, steps do
+                                                        local t = (i-1)/(steps-1)
+                                                        local dir
+                                                        if t < 0.33 then
+                                                            dir = (right * (1 - t/0.33) + forward * (t/0.33)).Unit
+                                                        elseif t < 0.66 then
+                                                            local a = (t-0.33)/0.33
+                                                            dir = (forward * (1 - a) + left * a).Unit
+                                                        else
+                                                            local a = (t-0.66)/0.34
+                                                            dir = (left * (1 - a) + toBehind.Unit * a).Unit
+                                                        end
+                                                        table.insert(points, dir)
+                                                    end
+                                                    spawn(function()
+                                                        for i, dir in ipairs(points) do
+                                                            if not bv.Parent then break end
+                                                            bv.Velocity = dir * dashSpeed
+                                                            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir)
+                                                            game:GetService("RunService").Heartbeat:Wait()
+                                                        end
+                                                        if bv.Parent then
+                                                            bv.Velocity = toBehind.Unit * dashSpeed
+                                                            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + toBehind.Unit)
+                                                        end
+                                                    end)
+                                                else
+                                                    bv.Velocity = dashVec.Unit * dashBaseSpeed * dashSpeedMultiplier
+                                                    -- Только для Front и Behind меняем CFrame
+                                                    if autoParryDirection == "Front" then
+                                                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dashVec.Unit)
+                                                    end
+                                                    -- Для Back/Left/Right не трогаем CFrame (смотрит вперед)
+                                                end
+                                                task.delay(dashDuration, function()
+                                                    if bv and bv.Parent then
+                                                        bv:Destroy()
+                                                    end
+                                                    if autoParryDirection == "Behind" then
+                                                        local enemyLookVector = enemyRoot.CFrame.LookVector
+                                                        local behindPos = enemyRoot.Position - enemyLookVector * 8
+                                                        local dist = (hrp.Position - behindPos).Magnitude
+                                                        if dist > 5 then
+                                                            local pullBv = Instance.new("BodyVelocity")
+                                                            pullBv.Parent = hrp
+                                                            pullBv.Name = "DashVelocityPull"
+                                                            pullBv.MaxForce = Vector3.new(100000, 0, 100000)
+                                                            pullBv.Velocity = (behindPos - hrp.Position).Unit * dashBaseSpeed * 1.2
+                                                            hrp.CFrame = CFrame.new(hrp.Position, behindPos)
+                                                            task.delay(0.08, function()
+                                                                if pullBv and pullBv.Parent then
+                                                                    pullBv:Destroy()
+                                                                end
+                                                            end)
+                                                        end
+                                                        
+                                                        -- Отслеживание врага после behind dash
+                                                        local enemyStartPos = enemyRoot.Position
+                                                        local trackingStartTime = tick()
+                                                        local trackingDuration = 2 -- 2 секунды отслеживания
+                                                        
+                                                        spawn(function()
+                                                            while tick() - trackingStartTime < trackingDuration do
+                                                                if not enemyRoot or not enemyRoot.Parent then break end
+                                                                local enemyCurrentPos = enemyRoot.Position
+                                                                local enemyMovedDistance = (enemyCurrentPos - enemyStartPos).Magnitude
+                                                                
+                                                                if enemyMovedDistance >= 20 then
+                                                                    -- Враг сдвинулся на 20+ единиц, делаем прямой dash к нему
+                                                                    local directDashBv = Instance.new("BodyVelocity")
+                                                                    directDashBv.Parent = hrp
+                                                                    directDashBv.Name = "DashVelocityDirect"
+                                                                    directDashBv.MaxForce = Vector3.new(100000, 0, 100000)
+                                                                    local toEnemy = (enemyCurrentPos - hrp.Position).Unit
+                                                                    directDashBv.Velocity = toEnemy * dashBaseSpeed * dashSpeedMultiplier
+                                                                    hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + toEnemy)
+                                                                    
+                                                                    -- Проигрываем анимацию прямого dash
+                                                                    local dashAnimFolder = game:GetService("ReplicatedStorage").Knit.Modules.Movesets.Default.Anims.DashAnims
+                                                                    local frontDashAnim = dashAnimFolder:FindFirstChild("FrontDash")
+                                                                    if frontDashAnim and animator then
+                                                                        local directDashTrack = animator:LoadAnimation(frontDashAnim)
+                                                                        directDashTrack:Play()
+                                                                        directDashTrack:AdjustSpeed(2.2)
+                                                                    end
+                                                                    
+                                                                    task.delay(0.15, function()
+                                                                        if directDashBv and directDashBv.Parent then
+                                                                            directDashBv:Destroy()
+                                                                        end
+                                                                    end)
+                                                                    break -- Прекращаем отслеживание после dash
+                                                                end
+                                                                task.wait(0.1) -- Проверяем каждые 0.1 секунды
+                                                            end
+                                                        end)
+                                                    end
+                                                end)
+                                            end
+                                            task.delay(3, function()
+                                                if enemyRoot then
+                                                    enemyRoot:SetAttribute(animKey, nil)
+                                                end
+                                            end)
+                                            return
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+})
